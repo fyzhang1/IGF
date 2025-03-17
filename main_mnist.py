@@ -19,7 +19,7 @@ from scipy.optimize import linear_sum_assignment
 from scipy.fftpack import dct, idct
 from scipy import stats
 from utils import label_to_onehot, cross_entropy_for_onehot
-from models.vision import LeNetMnist, weights_init, LeNet
+from models.vision import LeNetMnist, weights_init, LeNet, LeNet5
 from models.resnet import resnet20
 from logger import set_logger
 import random
@@ -29,13 +29,13 @@ import matplotlib.pyplot as plt
 参数定义
 """
 
-# python main.py --lr 1e-4 --epochs 30 --leak_mode none --dataset CIFAR10 --batch_size 256 --shared_model LeNet --type class --unlearning retrain
+# python main_mnist.py --lr 1e-4 --epochs 25 --leak_mode none --dataset FashionMNIST --batch_size 256 --shared_model LeNetMnist --type sample --unlearning retrain
 parser = argparse.ArgumentParser(description='Deep Leakage from Gradients.')
 parser.add_argument('--dataset', type=str, default="MNIST",
                     help='dataset to do the experiment')
 parser.add_argument('--model', type=str, default="MLP-3000",
                     help='MLP-{hidden_size}')
-parser.add_argument('--shared_model', type=str, default="LeNet",
+parser.add_argument('--shared_model', type=str, default="LeNetMnist",
                     help='LeNet')
 parser.add_argument('--lr', type=float, default=1e-4,
                     help='learning rate')
@@ -80,6 +80,67 @@ def get_class_samples(dataset, num_samples_per_class=10):
 反演模型训练时的输入是全局模型在辅助数据集上的梯度然后与辅助数据集样本优化; 产生一种梯度与数据的映射关系
 之后test的过程中再将全局模型的梯度作为输入去反演出数据
 """
+
+# def train(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, leak_batch=1):
+#     # gpt
+#     grad_to_img_net.train()
+#     total_loss = 0
+#     total_num = 0
+#     for i, (xs, ys) in enumerate(tqdm(data_loader)):
+#         optimizer.zero_grad()
+#         batch_num = len(ys)
+#         batch_size = int(batch_num / leak_batch)
+#         batch_num = batch_size * leak_batch
+#         total_num += batch_num
+#         xs, ys = xs[:batch_num, selected_para].cuda(), ys[:batch_num].cuda()
+
+#         """
+#         这里的部分我们不用太考虑
+#         """
+#         if sign:
+#             xs = torch.sign(xs)
+#         if prune_rate is not None:
+#             mask = torch.zeros(xs.size()).cuda()
+#             rank = torch.argsort(xs.abs(), dim=1)[:,  -int(xs.size()[1] * (1 - prune_rate)):]
+#             mask[torch.arange(len(ys)).view(-1, 1).expand(rank.size()), rank] = 1   
+#         if mask is not None:
+#             xs = xs * mask
+#         if gauss_noise > 0:
+#             xs = xs + torch.randn(*xs.shape).cuda() * gauss_noise
+
+#         # 处理后的梯度 xs 和对应的原始数据 ys
+#         # 看数据维度
+#         print("看维度")
+#         print(xs.shape) # torch.Size([256, 15826])
+#         print(ys.shape) # torch.Size([256, 3072])
+        
+#         xs = xs.view(batch_size, leak_batch, -1).mean(1) 
+#         ys = ys.view(batch_size, leak_batch, -1)
+
+        
+#         print(xs.shape) # torch.Size([256, 15826])
+#         print(ys.shape) # torch.Size([256, 1, 3072])
+
+
+
+#         # 输入梯度，输出恢复的图像
+#         preds = grad_to_img_net(xs).view(batch_size, leak_batch, -1) # pred: torch.Size([256, 1, 3072])
+#         print("pred:", preds.shape)
+        
+#         # 使用均方误差（MSE）衡量恢复图像与原始图像的差异，并通过匈牙利算法匹配批次内的样本顺序
+#         batch_wise_mse = (torch.cdist(ys, preds) ** 2) / image_size
+#         loss = 0
+#         for mse_mat in batch_wise_mse:
+#             row_ind, col_ind = linear_sum_assignment(mse_mat.detach().cpu().numpy())
+#             loss += mse_mat[row_ind, col_ind].mean()
+
+#         loss /= batch_size
+#         loss.backward()
+#         optimizer.step()
+#         total_loss += loss.item() * batch_num
+            
+#     total_loss = total_loss / len(data_loader.dataset)
+#     return total_loss
 
 def train(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, leak_batch=1):
     grad_to_img_net.train()
@@ -130,8 +191,8 @@ def train(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, 
         # Prepare matched images for perceptual loss
         matched_reconstructed_all = torch.stack(matched_reconstructed, dim=0).view(batch_size * leak_batch, image_size)
         matched_real_all = torch.stack(matched_real, dim=0).view(batch_size * leak_batch, image_size)
-        reconstructed_images_matched = matched_reconstructed_all.view(batch_size * leak_batch, 3, 32, 32).to('cuda')
-        real_images_matched = matched_real_all.view(batch_size * leak_batch, 3, 32, 32).to('cuda')
+        reconstructed_images_matched = matched_reconstructed_all.view(batch_size * leak_batch, 1, 28, 28).to('cuda')
+        real_images_matched = matched_real_all.view(batch_size * leak_batch, 1, 28, 28).to('cuda')
         
 
         loss_fn_vgg = lpips.LPIPS(net='vgg').to('cuda')
@@ -157,82 +218,6 @@ def train(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, 
     return total_loss
 
 
-#感知损失+MSE损失+SSIM损失
-# def train(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, leak_batch=1):
-#     grad_to_img_net.train()
-#     total_loss = 0
-#     total_num = 0
-#     for i, (xs, ys) in enumerate(tqdm(data_loader)):
-#         optimizer.zero_grad()
-#         batch_num = len(ys)
-#         batch_size = int(batch_num / leak_batch)
-#         batch_num = batch_size * leak_batch
-#         total_num += batch_num
-#         xs, ys = xs[:batch_num, selected_para].cuda(), ys[:batch_num].cuda()
-#         vgg = models.vgg16(pretrained=True).features.eval().to('cuda')
-        
-#         if sign:
-#             xs = torch.sign(xs)
-#         if prune_rate is not None:
-#             mask = torch.zeros(xs.size()).cuda()
-#             rank = torch.argsort(xs.abs(), dim=1)[:, -int(xs.size()[1] * (1 - prune_rate)):]
-#             mask[torch.arange(len(ys)).view(-1, 1).expand(rank.size()), rank] = 1   
-#         if mask is not None:
-#             xs = xs * mask
-#         if gauss_noise > 0:
-#             xs = xs + torch.randn(*xs.shape).cuda() * gauss_noise
-
-#         xs = xs.view(batch_size, leak_batch, -1).mean(1)
-#         ys = ys.view(batch_size, leak_batch, image_size)
-#         preds = grad_to_img_net(xs).view(batch_size, leak_batch, image_size)
-        
-#         # Compute MSE loss with matching per sample
-#         mse_loss = 0
-#         matched_reconstructed = []
-#         matched_real = []
-#         for sample_id in range(batch_size):
-#             ys_sample = ys[sample_id]
-#             preds_sample = preds[sample_id]
-#             distance_matrix = torch.cdist(ys_sample, preds_sample)
-#             mse_mat = (distance_matrix ** 2) / image_size
-#             row_ind, col_ind = linear_sum_assignment(mse_mat.detach().cpu().numpy())
-#             mse_loss_sample = mse_mat[row_ind, col_ind].mean()
-#             mse_loss += mse_loss_sample
-#             # Collect matched reconstructed and real images
-#             matched_reconstructed.append(preds_sample[col_ind])
-#             matched_real.append(ys_sample[row_ind])
-        
-#         mse_loss /= batch_size
-        
-#         # Prepare matched images for perceptual loss and SSIM
-#         matched_reconstructed_all = torch.stack(matched_reconstructed, dim=0).view(batch_size * leak_batch, image_size)
-#         matched_real_all = torch.stack(matched_real, dim=0).view(batch_size * leak_batch, image_size)
-#         reconstructed_images_matched = matched_reconstructed_all.view(batch_size * leak_batch, 3, 32, 32).to('cuda')
-#         real_images_matched = matched_real_all.view(batch_size * leak_batch, 3, 32, 32).to('cuda')
-        
-#         # Compute perceptual loss
-#         loss_fn_vgg = lpips.LPIPS(net='vgg').to('cuda')
-#         real_images_matched_perc = real_images_matched * 2 - 1  # [0,1] -> [-1,1] for perceptual loss
-#         reconstructed_images_matched_perc = reconstructed_images_matched * 2 - 1
-#         perceptual_loss = loss_fn_vgg(real_images_matched_perc, reconstructed_images_matched_perc).mean()
-        
-#         # Compute SSIM loss
-#         # SSIM expects images in [0,1] range, which matches reconstructed_images_matched and real_images_matched
-#         ssim_value = ssim(real_images_matched, reconstructed_images_matched, data_range=1.0, size_average=True)
-#         ssim_loss = 1 - ssim_value  # Convert SSIM to a loss term
-        
-#         # Total loss: Combine MSE, perceptual, and SSIM losses
-#         total_loss = mse_loss + 0.1 * perceptual_loss + 0.1 * ssim_loss  # Weights can be adjusted
-        
-#         print("perceptual_loss:", perceptual_loss.item(), "ssim_loss:", ssim_loss.item())
-        
-#         total_loss.backward()
-#         optimizer.step()
-#         total_loss_value = total_loss.item() * batch_num
-#         total_loss += total_loss_value
-            
-#     total_loss = total_loss / len(data_loader.dataset)
-#     return total_loss
 
 def test(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, leak_batch=1):
     grad_to_img_net.eval()
@@ -246,16 +231,16 @@ def test(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, l
             batch_num = batch_size * leak_batch
             total_num += batch_num
             xs, ys = xs[:batch_num, selected_para].cuda(), ys[:batch_num].cuda()
-            # if sign:
-            #     xs = torch.sign(xs)
-            # if prune_rate is not None:
-            #     mask = torch.zeros(xs.size()).cuda()
-            #     rank = torch.argsort(xs.abs(), dim=1)[:,  -int(xs.size()[1] * (1 - prune_rate)):]
-            #     mask[torch.arange(len(ys)).view(-1, 1).expand(rank.size()), rank] = 1   
-            # if mask is not None:
-            #     xs = xs * mask
-            # if gauss_noise > 0:
-            #     xs = xs + torch.randn(*xs.shape).cuda() * gauss_noise
+            if sign:
+                xs = torch.sign(xs)
+            if prune_rate is not None:
+                mask = torch.zeros(xs.size()).cuda()
+                rank = torch.argsort(xs.abs(), dim=1)[:,  -int(xs.size()[1] * (1 - prune_rate)):]
+                mask[torch.arange(len(ys)).view(-1, 1).expand(rank.size()), rank] = 1   
+            if mask is not None:
+                xs = xs * mask
+            if gauss_noise > 0:
+                xs = xs + torch.randn(*xs.shape).cuda() * gauss_noise
             xs = xs.view(batch_size, leak_batch, -1).mean(1)
             ys = ys.view(batch_size, leak_batch, -1)
             preds = grad_to_img_net(xs).view(batch_size, leak_batch, -1)
@@ -273,17 +258,23 @@ def test(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, l
             total_loss += loss.item()
             
     reconstructed_data = torch.cat(reconstructed_data)
-    reconstructed_data = reconstructed_data.view(-1, 3, 32, 32)
+    reconstructed_data = reconstructed_data.view(-1, 1, 28, 28)
     total_loss = total_loss / total_num
     return total_loss, reconstructed_data
 
 #input the model shared among parties
+
+
 if args.dataset == "CIFAR10":
     image_size = 3 * 32 * 32
     num_classes = 10
 elif args.dataset == "CIFAR100":
     image_size = 3 * 32 * 32
     num_classes = 100
+elif args.dataset in ["FashionMNIST", "MNIST"]:
+    image_size = 28 * 28
+    num_classes = 10
+    input_channels = 1
 
 """
 全局模型定义LeNet (net)
@@ -291,6 +282,12 @@ elif args.dataset == "CIFAR100":
 
 if args.shared_model == "LeNet":
     net = LeNet(num_classes).to("cuda")
+    compress_rate = 1.0
+    torch.manual_seed(1234)
+    net.apply(weights_init)
+    criterion = cross_entropy_for_onehot
+elif args.shared_model == "LeNetMnist":
+    net = LeNetMnist(input_channels=1,num_classes=10).to("cuda")
     compress_rate = 1.0
     torch.manual_seed(1234)
     net.apply(weights_init)
@@ -317,27 +314,30 @@ if args.trainset == "full":
 
 else:
     checkpoint_name = f"data/{args.dataset}_{args.shared_model}_{args.trainset}_grad_to_img.pl"
-if not os.path.exists(checkpoint_name):
-    print("generating dataset...")
-    if args.dataset == "MNIST":
+
+print("generating dataset...")
+if args.dataset == "MNIST":
         transform = transforms.Compose([
                     transforms.ToTensor(),
                     ])
         dst_train = datasets.MNIST("~/.torch", download=True, train=True, transform=transform)
         dst_test = datasets.MNIST("~/.torch", download=True, train=False, transform=transform)
-    elif args.dataset == "CIFAR100":
+
+elif args.dataset == "FashionMNIST":
+        transform = transforms.Compose([
+                    transforms.ToTensor(),
+                    ])
+        
+        dst_train = datasets.FashionMNIST("~/.torch", download=True, train=True, transform=transform)
+        dst_test = datasets.FashionMNIST("~/.torch", download=True, train=False, transform=transform)
+elif args.dataset == "CIFAR100":
         transform = transforms.Compose([
                     transforms.ToTensor(),
                     ])
         
         dst_train = datasets.CIFAR100("~/.torch", download=True, train=True, transform=transform)
         dst_test = datasets.CIFAR100("~/.torch", download=True, train=False, transform=transform)
-    elif args.dataset == "CIFAR10":
-        # transform = transforms.Compose([
-        #     transforms.RandomHorizontalFlip(),
-        #     transforms.RandomCrop(32, padding=4),
-        #     transforms.ToTensor(),
-        # ])
+elif args.dataset == "CIFAR10":
         transform = transforms.Compose([
                     transforms.ToTensor(),
                     ])
@@ -346,47 +346,47 @@ if not os.path.exists(checkpoint_name):
         dst_test = datasets.CIFAR10("~/.torch", download=True, train=False, transform=transform)
     
     
-    SEED = 42
-    torch.manual_seed(SEED)
-    np.random.seed(SEED)
-    # 定义客户端数量和遗忘参数
-    CLIENT_NUM = 4
-    FORGOTTEN_CLIENT_IDX = 3  # 要遗忘的客户端索引
-    FORGET_SIZE = 1000       # 固定遗忘样本数
-    FORGOTTEN_CLASS = 1
+SEED = 42
+torch.manual_seed(SEED)
+np.random.seed(SEED)
+# 定义客户端数量和遗忘参数
+CLIENT_NUM = 4
+FORGOTTEN_CLIENT_IDX = 3  # 要遗忘的客户端索引
+FORGET_SIZE = 1000       # 固定遗忘样本数
+FORGOTTEN_CLASS = 1
     
-    print("加载fedrated learning和fedrated unlearning数据集")
+print("加载fedrated learning和fedrated unlearning数据集")
 
 
-    if args.type == "sample":
+if args.type == "sample":
         # 固定划分客户端数据（使用确定性的随机划分）
-        client_datasets = torch.utils.data.random_split(
+    client_datasets = torch.utils.data.random_split(
             dst_train,
             [len(dst_train)//CLIENT_NUM]*CLIENT_NUM,
             generator=torch.Generator().manual_seed(SEED)  # 固定划分随机种子
         )
         
         # 获取目标客户端原始数据索引
-        target_dataset = client_datasets[FORGOTTEN_CLIENT_IDX]
-        original_indices = target_dataset.indices.copy()  # 原始索引列表
+    target_dataset = client_datasets[FORGOTTEN_CLIENT_IDX]
+    original_indices = target_dataset.indices.copy()  # 原始索引列表
 
         # 确定性地选择前N个样本作为遗忘集（方法1：绝对位置）
-        fixed_forgotten_indices = sorted(original_indices)[:FORGET_SIZE]  # 按原始顺序取前1000
+    fixed_forgotten_indices = sorted(original_indices)[:FORGET_SIZE]  # 按原始顺序取前1000
 
         # 更新客户端数据集划分
-        remaining_indices = list(set(original_indices) - set(fixed_forgotten_indices))
-        client_datasets[FORGOTTEN_CLIENT_IDX] = torch.utils.data.Subset(dst_train, remaining_indices)
+    remaining_indices = list(set(original_indices) - set(fixed_forgotten_indices))
+    client_datasets[FORGOTTEN_CLIENT_IDX] = torch.utils.data.Subset(dst_train, remaining_indices)
 
         # 创建遗忘数据集加载器
-        forgotten_dataset = torch.utils.data.Subset(dst_train, fixed_forgotten_indices)
-        forgotten_loader = torch.utils.data.DataLoader(
+    forgotten_dataset = torch.utils.data.Subset(dst_train, fixed_forgotten_indices)
+    forgotten_loader = torch.utils.data.DataLoader(
             forgotten_dataset, 
             batch_size=32, 
             shuffle=False
         )
 
         # 创建客户端加载器（包含更新后的数据集）
-        client_loaders = [
+    client_loaders = [
             torch.utils.data.DataLoader(
                 ds, 
                 batch_size=32, 
@@ -394,42 +394,42 @@ if not os.path.exists(checkpoint_name):
                 generator=torch.Generator().manual_seed(SEED))
             for ds in client_datasets ]
 
-        test_forgotten_loader = torch.utils.data.DataLoader(
+    test_forgotten_loader = torch.utils.data.DataLoader(
             forgotten_dataset, 
             batch_size=1, 
             shuffle=False
         )
     
-    elif args.type == "client":
+elif args.type == "client":
         # 固定划分客户端数据
-        client_datasets = torch.utils.data.random_split(
+    client_datasets = torch.utils.data.random_split(
             dst_train,
             [len(dst_train)//CLIENT_NUM]*CLIENT_NUM,
             generator=torch.Generator().manual_seed(SEED)
         )
 
         # 获取目标客户端原始数据
-        target_dataset = client_datasets[FORGOTTEN_CLIENT_IDX]
-        original_indices = target_dataset.indices.copy()
+    target_dataset = client_datasets[FORGOTTEN_CLIENT_IDX]
+    original_indices = target_dataset.indices.copy()
 
 
         # 将整个客户端的数据作为遗忘集
-        fixed_forgotten_indices = original_indices
+    fixed_forgotten_indices = original_indices
             # 更新客户端数据集为空
-        client_datasets[FORGOTTEN_CLIENT_IDX] = torch.utils.data.Subset(dst_train, [])
+    client_datasets[FORGOTTEN_CLIENT_IDX] = torch.utils.data.Subset(dst_train, [])
             
 
         # 创建遗忘数据集加载器
-        forgotten_dataset = torch.utils.data.Subset(dst_train, fixed_forgotten_indices)
-        forgotten_loader = torch.utils.data.DataLoader(
+    forgotten_dataset = torch.utils.data.Subset(dst_train, fixed_forgotten_indices)
+    forgotten_loader = torch.utils.data.DataLoader(
             forgotten_dataset, 
             batch_size=128, 
             shuffle=False
         )
 
         # 创建客户端加载器
-        client_loaders = [
-        torch.utils.data.DataLoader(
+    client_loaders = [
+    torch.utils.data.DataLoader(
             ds,
             batch_size=128,
             shuffle=(len(ds) > 0),  # Shuffle only if dataset has samples
@@ -437,48 +437,48 @@ if not os.path.exists(checkpoint_name):
         ) for ds in client_datasets
     ]
         
-        test_forgotten_loader = torch.utils.data.DataLoader(
+    test_forgotten_loader = torch.utils.data.DataLoader(
             forgotten_dataset, 
             batch_size=1, 
             shuffle=False
         )
 
-    elif args.type == "class":
+elif args.type == "class":
         # 固定划分客户端数据
-        client_datasets = torch.utils.data.random_split(
+    client_datasets = torch.utils.data.random_split(
             dst_train,
             [len(dst_train)//CLIENT_NUM]*CLIENT_NUM,
             generator=torch.Generator().manual_seed(SEED)
         )
 
         # 获取目标客户端数据索引
-        target_dataset = client_datasets[FORGOTTEN_CLIENT_IDX]
-        original_indices = target_dataset.indices.copy()
+    target_dataset = client_datasets[FORGOTTEN_CLIENT_IDX]
+    original_indices = target_dataset.indices.copy()
 
         # 收集目标类别的样本索引
-        forgotten_indices = []
-        for idx in original_indices:
-            _, label = dst_train[idx]  # 假设数据格式为（数据，标签）
-            if label == FORGOTTEN_CLASS:
-                forgotten_indices.append(idx)
+    forgotten_indices = []
+    for idx in original_indices:
+        _, label = dst_train[idx]  # 假设数据格式为（数据，标签）
+        if label == FORGOTTEN_CLASS:
+            forgotten_indices.append(idx)
         
         # 确定性地排序索引
-        fixed_forgotten_indices = sorted(forgotten_indices)
+    fixed_forgotten_indices = sorted(forgotten_indices)
 
         # 更新客户端数据集（移除目标类别）
-        remaining_indices = list(set(original_indices) - set(fixed_forgotten_indices))
-        client_datasets[FORGOTTEN_CLIENT_IDX] = torch.utils.data.Subset(dst_train, remaining_indices)
+    remaining_indices = list(set(original_indices) - set(fixed_forgotten_indices))
+    client_datasets[FORGOTTEN_CLIENT_IDX] = torch.utils.data.Subset(dst_train, remaining_indices)
 
         # 创建遗忘数据集加载器
-        forgotten_dataset = torch.utils.data.Subset(dst_train, fixed_forgotten_indices)
-        forgotten_loader = torch.utils.data.DataLoader(
+    forgotten_dataset = torch.utils.data.Subset(dst_train, fixed_forgotten_indices)
+    forgotten_loader = torch.utils.data.DataLoader(
             forgotten_dataset, 
             batch_size=128, 
             shuffle=False
         )
 
         # 客户端加载器
-        client_loaders = [
+    client_loaders = [
             torch.utils.data.DataLoader(
                 ds, 
                 batch_size=128, 
@@ -487,7 +487,7 @@ if not os.path.exists(checkpoint_name):
             ) for ds in client_datasets
         ]
 
-        test_forgotten_loader = torch.utils.data.DataLoader(
+    test_forgotten_loader = torch.utils.data.DataLoader(
             forgotten_dataset, 
             batch_size=1, 
             shuffle=False
@@ -495,7 +495,7 @@ if not os.path.exists(checkpoint_name):
 
     # aux_dataset= dst_validation
 
-    aux_loader = torch.utils.data.DataLoader(dst_test, batch_size=1, shuffle=False)  # 测试集
+aux_loader = torch.utils.data.DataLoader(dst_test, batch_size=1, shuffle=False)  # 测试集
 
     # selected_indices = get_class_samples(dst_test, num_samples_per_class=300)
 
@@ -514,91 +514,91 @@ if not os.path.exists(checkpoint_name):
     # print(len(aux_loader.dataset))              # 50000
     # print(len(forgotten_loader.dataset))        # 100
 
-    def leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_forgotten=False):
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        full_net.eval()
-        unlearned_net.eval()
+def leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_forgotten=False):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    full_net.eval()
+    unlearned_net.eval()
 
             # 动态计算模型参数量
-        model_size = sum(p.numel() for p in full_net.parameters())  # 关键修改
-        image_size = np.prod(data_loader.dataset[0][0].shape)      # 输入图像的维度（如 1 * 28 * 28）
+    model_size = sum(p.numel() for p in full_net.parameters())  # 关键修改
+    image_size = np.prod(data_loader.dataset[0][0].shape)      # 输入图像的维度（如 1 * 28 * 28）
         
         # Initialize tensors for features and targets
-        features = torch.zeros([len(data_loader.dataset), model_size], device=device)
-        targets = torch.zeros([len(data_loader.dataset), image_size], device=device)
+    features = torch.zeros([len(data_loader.dataset), model_size], device=device)
+    targets = torch.zeros([len(data_loader.dataset), image_size], device=device)
 
-        for i, (images, labels) in enumerate(tqdm(data_loader)):
-            onehot_labels = label_to_onehot(labels, num_classes)
-            images, onehot_labels = images.to(device), onehot_labels.to(device)
+    for i, (images, labels) in enumerate(tqdm(data_loader)):
+        onehot_labels = label_to_onehot(labels, num_classes)
+        images, onehot_labels = images.to(device), onehot_labels.to(device)
             
             # Calculate gradients for the full model
-            pred_full = full_net(images)
-            loss_full = criterion(pred_full, onehot_labels)
-            dy_dx_full = torch.autograd.grad(loss_full, full_net.parameters(), create_graph=False)
-            grad_full = torch.cat([g.detach().view(-1) for g in dy_dx_full])
+        pred_full = full_net(images)
+        loss_full = criterion(pred_full, onehot_labels)
+        dy_dx_full = torch.autograd.grad(loss_full, full_net.parameters(), create_graph=False)
+        grad_full = torch.cat([g.detach().view(-1) for g in dy_dx_full])
 
             # Calculate gradients for the unlearned model
-            pred_unlearned = unlearned_net(images)
-            loss_unlearned = criterion(pred_unlearned, onehot_labels)
-            dy_dx_unlearned = torch.autograd.grad(loss_unlearned, unlearned_net.parameters(), create_graph=False)
-            grad_unlearned = torch.cat([g.detach().view(-1) for g in dy_dx_unlearned])
+        pred_unlearned = unlearned_net(images)
+        loss_unlearned = criterion(pred_unlearned, onehot_labels)
+        dy_dx_unlearned = torch.autograd.grad(loss_unlearned, unlearned_net.parameters(), create_graph=False)
+        grad_unlearned = torch.cat([g.detach().view(-1) for g in dy_dx_unlearned])
 
             # Compute the difference between gradients
-            diff_grad = grad_full - grad_unlearned
+        diff_grad = grad_full - grad_unlearned
 
             # Store the difference gradient (features) and the original image (targets)
-            features[i] = diff_grad
-            targets[i] = images.view(-1)
+        features[i] = diff_grad
+        targets[i] = images.view(-1)
 
-        return features, targets
-
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("开始实例化全局模型")
-    # 实例化全样本模型
-    full_net = LeNet(num_classes).to(device)
-    criterion = nn.CrossEntropyLoss()  # 交叉熵损失
-    optimizer_full = torch.optim.Adam(full_net.parameters(), lr=0.001)  # Adam优化器，学习率0.001
-
-    unlearned_net = LeNet(num_classes).to(device)
-    optimizer_unlearned = torch.optim.Adam(unlearned_net.parameters(), lr=0.001)
-
-    full_model_path = "/home/ecs-user/fgi/federated_weight/Lenet/efficient/cifar100/CIFAR100_class_efficient_federated_full_round_20_partial.pth"
-    print(f"Found existing full model at '{full_model_path}', loading weights...")
-    full_net.load_state_dict(torch.load(full_model_path))
+    return features, targets
 
 
-    unlearned_model_path = "/home/ecs-user/fgi/federated_weight/Lenet/efficient/cifar100/CIFAR100_class_efficient_federated_unlearned_round_20_partial.pth"
-    print(f"Found existing unlearned model at '{unlearned_model_path}', loading weights...")
-    unlearned_net.load_state_dict(torch.load(unlearned_model_path))
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("开始实例化全局模型")
+# 实例化全样本模型
+full_net = LeNetMnist(input_channels=1,num_classes=10).to(device)
+criterion = nn.CrossEntropyLoss()  # 交叉熵损失
+optimizer_full = torch.optim.Adam(full_net.parameters(), lr=0.001)  # Adam优化器，学习率0.001
+
+unlearned_net = LeNetMnist(input_channels=1,num_classes=10).to(device)
+optimizer_unlearned = torch.optim.Adam(unlearned_net.parameters(), lr=0.001)
+
+full_model_path = "/home/ecs-user/fgi/federated_weight/FashionMNIST_sample_retrain_federated_full_round_20_partial.pth"
+print(f"Found existing full model at '{full_model_path}', loading weights...")
+full_net.load_state_dict(torch.load(full_model_path))
 
 
-    checkpoint = {}
+unlearned_model_path = "/home/ecs-user/fgi/federated_weight/FashionMNIST_sample_retrain_federated_unlearned_round_20_partial.pth"
+print(f"Found existing unlearned model at '{unlearned_model_path}', loading weights...")
+unlearned_net.load_state_dict(torch.load(unlearned_model_path))
+
+
+checkpoint = {}
     # 生成训练数据（被遗忘样本的差异梯度）
-    print("Generating training leakage dataset...")
+print("Generating training leakage dataset...")
     # features, targets = leakage_dataset(forgotten_loader)
 
-    features, targets = leakage_dataset(aux_loader, full_net, unlearned_net, criterion, is_forgotten=False)
-    checkpoint["train_features"] = features
-    checkpoint["train_targets"] = targets
+train_features, train_targets = leakage_dataset(aux_loader, full_net, unlearned_net, criterion, is_forgotten=False)
+checkpoint["train_features"] = train_features
+checkpoint["train_targets"] = train_targets
 
 
     # 生成测试数据（测试集的差异梯度）
-    print("Generating testing leakage dataset...")
+print("Generating testing leakage dataset...")
 
-    features, targets = leakage_dataset(test_forgotten_loader, full_net, unlearned_net, criterion, is_forgotten=False)
-    checkpoint["test_features"] = features
-    checkpoint["test_targets"] = targets
-    torch.save(checkpoint, checkpoint_name)
-else:
-    checkpoint = torch.load(checkpoint_name)
-del net
+test_features, test_targets = leakage_dataset(test_forgotten_loader, full_net, unlearned_net, criterion, is_forgotten=False)
+checkpoint["test_features"] = test_features
+checkpoint["test_targets"] = test_targets
+torch.save(checkpoint, checkpoint_name)
+# else:
+#     checkpoint = torch.load(checkpoint_name)
+# del net
     
     
 print("loading dataset...")
-trainset = torch.utils.data.TensorDataset(checkpoint["train_features"], checkpoint["train_targets"])
+trainset = torch.utils.data.TensorDataset(train_features, train_targets)
 
-testset = torch.utils.data.TensorDataset(checkpoint["test_features"], checkpoint["test_targets"])
+testset = torch.utils.data.TensorDataset(test_features, test_targets)
 
 
 
@@ -629,47 +629,35 @@ print(prune_rate, leak_batch, sign, gauss_noise)
 """
 torch.manual_seed(0)
 selected_para = torch.randperm(model_size)[:int(model_size * compress_rate)]
-# if args.model.startswith("MLP"):
-#     print(image_size)
-#     hidden_size = int(args.model.split("-")[-1])
-#     grad_to_img_net = nn.Sequential(
-#         nn.Linear(len(selected_para), hidden_size),
-#         nn.ReLU(),
-#         nn.Linear(hidden_size, hidden_size),
-#         nn.ReLU(),
-#         nn.Linear(hidden_size, image_size * leak_batch),
-#         torch.nn.Sigmoid()
-#     )
-#     grad_to_img_net = grad_to_img_net.cuda()
 
 class ConvDecoder(nn.Module):
-    def __init__(self, input_size, output_channels=3, leak_batch=1):
+    def __init__(self, input_size, leak_batch=1):
         super().__init__()
         self.input_size = input_size
-        self.fc = nn.Linear(input_size, 512 * 4 * 4)
+        self.fc = nn.Linear(input_size, 512 * 7 * 7) 
         self.decoder = nn.Sequential(
-            nn.Conv2d(512, 512, 3, padding=1),
-            nn.BatchNorm2d(512),
+            nn.Conv2d(512, 256, 3, padding=1),
+            nn.BatchNorm2d(256),
             nn.ReLU(),
             nn.PixelShuffle(2),  # 8x8
             
-            nn.Conv2d(128, 256, 3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.PixelShuffle(2),  # 16x16
+            # nn.Conv2d(256, 128, 3, padding=1),
+            # nn.BatchNorm2d(256),
+            # nn.ReLU(),
+            # nn.PixelShuffle(2),  # 16x16
             
             nn.Conv2d(64, 128, 3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.PixelShuffle(2),  # 32x32
             
-            nn.Conv2d(32, 3 * leak_batch, 3, padding=1),
+            nn.Conv2d(32, 1 * leak_batch, 3, padding=1),
             nn.Sigmoid()
         )
     
     def forward(self, x):
         x = self.fc(x)
-        x = x.view(-1, 512, 4, 4)
+        x = x.view(-1, 512, 7, 7)
         x = self.decoder(x)
         return x.view(x.size(0), -1)
 
@@ -696,19 +684,16 @@ optimizer = torch.optim.Adam(grad_to_img_net.parameters(), lr=lr)
 """
 
 batch_size = args.batch_size
-# train_loader = torch.utils.data.DataLoader(dataset=trainset,
-#                                               batch_size=(batch_size * leak_batch), 
-#                                               shuffle=True)
-# test_loader = torch.utils.data.DataLoader(dataset=testset,
-#                                               batch_size=(batch_size * leak_batch), 
-#                                               shuffle=False)
 
-train_loader_inversion = torch.utils.data.DataLoader(trainset, batch_size=(batch_size * leak_batch), shuffle=True)
+train_loader_inversion = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
 
-test_loader_inversion = torch.utils.data.DataLoader(testset, batch_size=1, shuffle=False)
+test_loader_inversion = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False)
 #reformate the gt_data
 
 if args.dataset == "MNIST":
+    gt_data = checkpoint["test_targets"]
+    gt_data = gt_data.view(-1, 1, 28, 28)
+elif args.dataset == "FashionMNIST":
     gt_data = checkpoint["test_targets"]
     gt_data = gt_data.view(-1, 1, 28, 28)
 else:

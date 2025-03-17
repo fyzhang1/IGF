@@ -10,14 +10,8 @@ from models.vision import weights_init, LeNet,LeNetMnist
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset
 import argparse
-from federated import federated_train, federated_train_opt, federated_train_proximal
-# python fed_lenet.py --dataset CIFAR10 --type sample --unlearning efficient
-# python fed_lenet.py --dataset CIFAR100 --type class --unlearning retrain
-# python fed_lenet.py --dataset CIFAR10 --type sample --unlearning single_efficient
-# python fed_lenet.py --dataset MNIST --type sample --unlearning retrain
 
-
-# python fed_lenet.py --dataset CIFAR10 --type sample --unlearning retrain --aggregation fedprox
+# python fed_mnist.py --dataset MNIST --type sample --unlearning retrain
 
 parser = argparse.ArgumentParser(description='Deep Leakage from Gradients.')
 parser.add_argument('--dataset', type=str, default="CIFAR10",
@@ -26,8 +20,6 @@ parser.add_argument('--type', type=str, default="sample",
                     help='unlearning data type:sample,class,client')
 parser.add_argument('--unlearning', type=str, default="CIFAR10",
                     help='unlearning method:retrain,efficient')
-parser.add_argument('--aggregation', type=str, default="fedavg",
-                    help='fedavg,fedprox,fedopt')
 args = parser.parse_args()
 
 
@@ -53,53 +45,53 @@ FORGOTTEN_CLASS = 1 #遗忘类别时要遗忘的类别是什么.默认为1
 """
 模型定义
 """
-net = LeNet(num_classes).to("cuda")
+net = LeNetMnist(num_classes).to("cuda")
 compress_rate = 1.0
 torch.manual_seed(1234)
 net.apply(weights_init)
 criterion = cross_entropy_for_onehot
 
 
-# def federated_train(global_model, client_loaders, criterion, num_rounds=10, num_local_epochs=1, lr=0.001):
-#     """联邦训练函数(FedAvg)"""
-#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#     global_model.to(device)
+def federated_train(global_model, client_loaders, criterion, num_rounds=10, num_local_epochs=1, lr=0.001):
+    """联邦训练函数(FedAvg)"""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    global_model.to(device)
     
-#     for round in range(num_rounds):
-#         print(f"Communication Round {round+1}/{num_rounds}")
-#         client_models = []
+    for round in range(num_rounds):
+        print(f"Communication Round {round+1}/{num_rounds}")
+        client_models = []
         
-#         # 训练所有客户端
-#         for client_id, loader in enumerate(client_loaders):
-#             # 克隆全局模型
-#             local_model = LeNet(num_classes).cuda()
-#             local_model.load_state_dict(global_model.state_dict())
-#             local_model.to(device)
-#             optimizer = optim.Adam(local_model.parameters(), lr=lr)
+        # 训练所有客户端
+        for client_id, loader in enumerate(client_loaders):
+            # 克隆全局模型
+            local_model = LeNetMnist(num_classes).cuda()
+            local_model.load_state_dict(global_model.state_dict())
+            local_model.to(device)
+            optimizer = optim.Adam(local_model.parameters(), lr=lr)
             
-#             # 本地训练
-#             local_model.train()
-#             for _ in range(num_local_epochs):
-#                 for images, labels in loader:
-#                     images, labels = images.to(device), labels.to(device)
-#                     optimizer.zero_grad()
-#                     outputs = local_model(images)
-#                     loss = criterion(outputs, labels)
-#                     loss.backward()
-#                     optimizer.step()
+            # 本地训练
+            local_model.train()
+            for _ in range(num_local_epochs):
+                for images, labels in loader:
+                    images, labels = images.to(device), labels.to(device)
+                    optimizer.zero_grad()
+                    outputs = local_model(images)
+                    loss = criterion(outputs, labels)
+                    loss.backward()
+                    optimizer.step()
             
-#             # 保存客户端模型参数
-#             client_models.append(local_model.state_dict())
+            # 保存客户端模型参数
+            client_models.append(local_model.state_dict())
         
-#         # 参数平均（FedAvg）
-#         global_dict = global_model.state_dict()
-#         for key in global_dict.keys():
-#             global_dict[key] = torch.stack(
-#                 [client_models[i][key].float() for i in range(len(client_models))], 0
-#             ).mean(0)
-#         global_model.load_state_dict(global_dict)
+        # 参数平均（FedAvg）
+        global_dict = global_model.state_dict()
+        for key in global_dict.keys():
+            global_dict[key] = torch.stack(
+                [client_models[i][key].float() for i in range(len(client_models))], 0
+            ).mean(0)
+        global_model.load_state_dict(global_dict)
     
-#     return global_model
+    return global_model
 
 
 def federated_unlearning(global_model, forgotten_loader, remaining_client_loaders, 
@@ -116,7 +108,7 @@ def federated_unlearning(global_model, forgotten_loader, remaining_client_loader
     client_models = []
     for client_id, loader in enumerate(remaining_client_loaders):
         # 克隆全局模型到本地
-        local_model = LeNet(num_classes).to(device)
+        local_model = LeNetMnist(num_classes).to(device)
         local_model.load_state_dict(global_model.state_dict())
         
         # 本地执行梯度上升（仅对需要遗忘的客户端）
@@ -186,7 +178,7 @@ def single_federated_unlearning(global_model, forgotten_loader, remaining_client
     # 仅遗忘客户端计算梯度
     grad_sum = None
     for client_id, loader in enumerate(remaining_client_loaders):
-        local_model = LeNet(num_classes).to(device)
+        local_model = LeNetMnist(num_classes).to(device)
         local_model.load_state_dict(global_model.state_dict())
         
         if client_id == FORGOTTEN_CLIENT_IDX:
@@ -411,43 +403,18 @@ elif args.type == "class":
 if args.unlearning == "retrain":
     print("联邦训练完整模型...")
     # 初始化全局模型
-    full_net = LeNet(num_classes).cuda()
+    full_net = LeNetMnist(num_classes).cuda()
     criterion = nn.CrossEntropyLoss()
     global_round = 20
 
-    if args.aggregation == "fedavg":
-        full_net = federated_train(
-            full_net,
-            client_loaders,  # 包含调整后的客户端3数据
-            criterion,
-            num_rounds=global_round,
-            num_local_epochs=1,
-            lr=0.001,
-            num_classes=num_classes
-        )
-    elif args.aggregation == "fedprox":
-        full_net = federated_train_proximal(
-            full_net, 
-            client_loaders, 
-            criterion, 
-            num_rounds=global_round,
-            num_local_epochs=1, 
-            lr=0.001, 
-            mu=0.01, 
-            num_classes=num_classes)
-    
-    elif args.aggregation == "fedopt":
-        full_net = federated_train_opt(
-            full_net, 
-            client_loaders, 
-            criterion, 
-            num_rounds=global_round, 
-            num_local_epochs=1, 
-            lr=0.001, 
-            server_lr=0.1, 
-            server_momentum=0.9, 
-            num_classes=num_classes)
-
+    full_net = federated_train(
+        full_net,
+        client_loaders,  # 包含调整后的客户端3数据
+        criterion,
+        num_rounds=global_round,
+        num_local_epochs=1,
+        lr=0.001
+    )
 
     # 未学习模型训练（从原始客户端加载器重建）
     # 需要重新加载原始客户端数据（排除遗忘样本）
@@ -460,49 +427,19 @@ if args.unlearning == "retrain":
         for idx, ds in enumerate(client_datasets)
     ]
 
-    unlearned_net = LeNet(num_classes).cuda()
+    unlearned_net = LeNetMnist(num_classes).cuda()
     print("federated unlearning training...")
-
-
-    if args.aggregation == "fedavg":
-        unlearned_net = federated_train(
-            unlearned_net,
-            modified_client_loaders,  # 使用排除遗忘样本的加载器
-            criterion,
-            num_rounds=global_round,
-            num_local_epochs=1,
-            lr=0.001
-        )
-    elif args.aggregation == "fedprox":
-        unlearned_net = federated_train_proximal(
-            unlearned_net, 
-            modified_client_loaders, 
-            criterion, 
-            num_rounds=global_round,
-            num_local_epochs=1, 
-            lr=0.001, 
-            mu=0.01, 
-            num_classes=num_classes)
-    
-    elif args.aggregation == "fedopt":
-        unlearned_net = federated_train_opt(
-            unlearned_net, 
-            modified_client_loaders, 
-            criterion, 
-            num_rounds=global_round, 
-            num_local_epochs=1, 
-            lr=0.001, 
-            server_lr=0.1, 
-            server_momentum=0.9, 
-            num_classes=num_classes)
-
-
-
-
-
+    unlearned_net = federated_train(
+        unlearned_net,
+        modified_client_loaders,  # 使用排除遗忘样本的加载器
+        criterion,
+        num_rounds=global_round,
+        num_local_epochs=1,
+        lr=0.001
+    )
 elif args.unlearning == "efficient":
     print("联邦训练完整模型...")
-    full_net = LeNet(num_classes).cuda()
+    full_net = LeNetMnist(num_classes).cuda()
     criterion = nn.CrossEntropyLoss()
     global_round = 20
     client_batch_size =128
@@ -524,8 +461,7 @@ elif args.unlearning == "efficient":
         criterion,
         num_rounds=global_round,
         num_local_epochs=1,
-        lr=0.001,
-        num_classes=num_classes
+        lr=0.001
     )
 
     # 执行近似遗忘
@@ -537,7 +473,7 @@ elif args.unlearning == "efficient":
 
 elif args.unlearning == "single_efficient":
     print("联邦训练完整模型...")
-    full_net = LeNet(num_classes).cuda()
+    full_net = LeNetMnist(num_classes).cuda()
     criterion = nn.CrossEntropyLoss()  # 修正损失函数
     global_round = 20
     client_batch_size = 128
@@ -569,5 +505,5 @@ elif args.unlearning == "single_efficient":
 
 
 # 保存模型
-torch.save(full_net.state_dict(), f"/home/ecs-user/fgi/federated_weight/Lenet/{args.dataset}_{args.type}_{args.unlearning}_{args.aggregation}_federated_full_round_20_partial.pth")
-torch.save(unlearned_net.state_dict(), f"/home/ecs-user/fgi/federated_weight/Lenet/{args.dataset}_{args.type}_{args.unlearning}_{args.aggregation}_federated_unlearned_round_20_partial.pth")
+torch.save(full_net.state_dict(), f"/home/ecs-user/fgi/federated_weight/Lenet/{args.dataset}_{args.type}_{args.unlearning}_federated_full_round_20_partial.pth")
+torch.save(unlearned_net.state_dict(), f"/home/ecs-user/fgi/federated_weight/Lenet/{args.dataset}_{args.type}_{args.unlearning}_federated_unlearned_round_20_partial.pth")

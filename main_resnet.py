@@ -20,12 +20,15 @@ from models.resnet import resnet20
 from logger import set_logger
 import lpips
 
+# python main_resnet.py --lr 1e-4 --epochs 30 --leak_mode none --dataset CIFAR10 --batch_size 256 --shared_model ResNet20 --type sample --unlearning retrain
+
+
 parser = argparse.ArgumentParser(description='Deep Leakage from Gradients with SVD.')
 parser.add_argument('--dataset', type=str, default="MNIST",
                     help='dataset to do the experiment')
 parser.add_argument('--model', type=str, default="MLP-3000",
                     help='MLP-{hidden_size}')
-parser.add_argument('--shared_model', type=str, default="LeNet",
+parser.add_argument('--shared_model', type=str, default="ResNet20",
                     help='LeNet')
 parser.add_argument('--lr', type=float, default=1e-4,
                     help='learning rate')
@@ -43,6 +46,8 @@ parser.add_argument('--resume', type=str, default=None,
                     help='checkpoint path')
 parser.add_argument('--type', type=str, default="sample",
                     help='unlearning type')
+parser.add_argument('--unlearning', type=str, default="retrain",
+                    help='unlearning: retrain,efficient')
 args = parser.parse_args()
 
 if args.resume is not None:
@@ -88,6 +93,7 @@ def train(grad_to_img_net, net, data_loader, sign=False, mask=None, prune_rate=N
 
         xs = xs.view(batch_size, leak_batch, -1).mean(1).cuda()  # (batch_size, k)
         ys = ys.view(batch_size, leak_batch, -1).cuda()
+        grad_to_img_net = grad_to_img_net.cuda()
         preds = grad_to_img_net(xs).view(batch_size, leak_batch, -1)
 
 
@@ -399,12 +405,12 @@ optimizer_full = torch.optim.Adam(full_net.parameters(), lr=0.001)  # Adam优化
 unlearned_net = resnet20(num_classes).to(device)
 optimizer_unlearned = torch.optim.Adam(unlearned_net.parameters(), lr=0.001)
 
-full_model_path = "/home/ecs-user/fgi/resnet_CIFAR10_sample_federated_full_sample_round_20_partial.pth"
+full_model_path = "/home/ecs-user/fgi/federated_weight/Resnet/retrain/cifar10/CIFAR10_class_retrain_federated_full_round_20_partial.pth"
 print(f"Found existing full model at '{full_model_path}', loading weights...")
 full_net.load_state_dict(torch.load(full_model_path))
 
 
-unlearned_model_path = "/home/ecs-user/fgi/resnet_CIFAR10_sample_federated_unlearned_round_20_partial.pth"
+unlearned_model_path = "/home/ecs-user/fgi/federated_weight/Resnet/retrain/cifar10/CIFAR10_class_retrain_federated_unlearned_round_20_partial.pth"
 print(f"Found existing unlearned model at '{unlearned_model_path}', loading weights...")
 unlearned_net.load_state_dict(torch.load(unlearned_model_path))
 
@@ -560,21 +566,23 @@ for epoch in tqdm(range(args.epochs)):
             g['lr'] *= 0.1
 
 
-    checkpoint = {}
-    checkpoint["train_loss"] = train_loss
-    checkpoint["val_loss"] = test_loss
-    checkpoint["train_acc"] = train_acc
-    checkpoint["val_acc"] = test_acc
-    checkpoint["state_dict"] = grad_to_img_net.state_dict()
-    checkpoint["best_test_loss"] = best_test_loss
-    checkpoint["best_state_dict"] = best_state_dict
-    checkpoint["optimizer_state_dict"] = optimizer.state_dict()
-    if args.dataset.startswith("wikitext") or args.dataset.startswith("cola"):
-        checkpoint["val_reconstructed_imgs"] = reconstructed_imgs
-        checkpoint["gt_data"] = dst_validation["labels"]
-    elif args.dataset.startswith("CIFAR10") or args.dataset.startswith("CIFAR100"):
-        checkpoint["reconstructed_imgs"] = reconstructed_imgs[0]
-        checkpoint["gt_data"] = reconstructed_imgs[1]
-    checkpoint["epoch"] = epoch
-    torch.save(checkpoint, f"{save_dir}/checkpoint/{save_file_name}_version1.pt")
-    grad_to_img_net = grad_to_img_net.cuda()
+checkpoint = {}
+checkpoint["train_loss"] = train_loss
+checkpoint["val_loss"] = test_loss
+checkpoint["train_acc"] = train_acc
+checkpoint["val_acc"] = test_acc
+checkpoint["state_dict"] = grad_to_img_net.state_dict()
+checkpoint["best_test_loss"] = best_test_loss
+checkpoint["best_state_dict"] = best_state_dict
+checkpoint["optimizer_state_dict"] = optimizer.state_dict()
+if args.dataset.startswith("wikitext") or args.dataset.startswith("cola"):
+    checkpoint["val_reconstructed_imgs"] = reconstructed_imgs
+    checkpoint["gt_data"] = dst_validation["labels"]
+elif args.dataset.startswith("CIFAR10") or args.dataset.startswith("CIFAR100"):
+    checkpoint["reconstructed_imgs"] = reconstructed_imgs[0]
+    checkpoint["gt_data"] = reconstructed_imgs[1]
+checkpoint["epoch"] = epoch
+    # torch.save(checkpoint, f"{save_dir}/checkpoint/{save_file_name}_version1.pt")
+
+torch.save(checkpoint, f"checkpoint/{args.dataset}_{args.unlearning}_{args.type}_{args.model}_{args.leak_mode}_{args.lr}_{args.epochs}_{args.batch_size}.pt")
+grad_to_img_net = grad_to_img_net.cuda()
