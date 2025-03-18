@@ -5,16 +5,16 @@ Gradient Inversion Attacks in Federated Unlearning
 ### 1.1 using Lenet
 
 ```python
-python fed_lenet.py --dataset CIFAR10 --type sample
+python fed_lenet.py --dataset CIFAR10 --type sample --unlearning retrain --aggregation fedavg
 ```
 ```python
-python fed_lenet.py --dataset CIFAR10 --type sample
+python fed_lenet.py --dataset CIFAR100 --type sample --unlearning retrain --aggregation fedavg
 ```
 
 ```type:"sample;class;client"```
 ### 1.2 using resnet20
 ```python
-python fed_resnet.py --dataset CIFAR10 --type sample
+python fed_resnet.py --dataset CIFAR100 --type sample --unlearning retrain
 ```
 
 Note: modify the "num_classes"when change the dataset from cifar10 to cifar100
@@ -22,11 +22,11 @@ Note: modify the "num_classes"when change the dataset from cifar10 to cifar100
 find the definition of ```full_net``` and ```unlearn_net```; import the path of federated model weight
 
 ```python
-python main.py --lr 1e-4 --epochs 30 --leak_mode none --dataset CIFAR10 --batch_size 256 --shared_model LeNet
+python main.py --lr 1e-4 --epochs 30 --leak_mode perturb-0.01 --dataset CIFAR10 --batch_size 256 --shared_model LeNet --type sample --unlearning retrain
 ```
 
 ```python
-python main_resnet.py --lr 1e-4 --epochs 40 --leak_mode none --dataset CIFAR10 --batch_size 256 --shared_model ResNet20
+python main.py --lr 1e-4 --epochs 30 --leak_mode perturb-0.01 --dataset CIFAR10 --batch_size 256 --shared_model Resnet20 --type sample --unlearning retrain
 ```
 
 ## 3. Evaluation
