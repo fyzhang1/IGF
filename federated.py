@@ -3,7 +3,7 @@ from models.vision import weights_init, LeNet,LeNetMnist
 import torch.optim as optim
 import copy
 
-def federated_train(global_model, client_loaders, criterion, num_rounds=10, num_local_epochs=1, lr=0.001, num_classes=10):
+def federated_train(global_model, g_model, client_loaders, criterion, num_rounds=10, num_local_epochs=1, lr=0.001, num_classes=10):
     """联邦训练函数(FedAvg)"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     global_model.to(device)
@@ -15,21 +15,26 @@ def federated_train(global_model, client_loaders, criterion, num_rounds=10, num_
         # 训练所有客户端
         for client_id, loader in enumerate(client_loaders):
             # 克隆全局模型
-            local_model = LeNet(num_classes).cuda()
+            local_model = g_model.cuda()
             local_model.load_state_dict(global_model.state_dict())
             local_model.to(device)
             optimizer = optim.Adam(local_model.parameters(), lr=lr)
             
             # 本地训练
             local_model.train()
-            for _ in range(num_local_epochs):
+            for epoch in range(num_local_epochs):
+                epoch_loss = 0
                 for images, labels in loader:
                     images, labels = images.to(device), labels.to(device)
                     optimizer.zero_grad()
                     outputs = local_model(images)
                     loss = criterion(outputs, labels)
                     loss.backward()
+                    epoch_loss += loss.item()
                     optimizer.step()
+
+                print(f"Client {client_id} - Epoch {epoch+1}/{num_local_epochs} - Loss: {epoch_loss / len(loader):.4f}")
+
             
             # 保存客户端模型参数
             client_models.append(local_model.state_dict())
@@ -46,7 +51,7 @@ def federated_train(global_model, client_loaders, criterion, num_rounds=10, num_
 
 
 
-def federated_train_proximal(global_model, client_loaders, criterion, num_rounds=10, num_local_epochs=1, lr=0.001, mu=0.01, num_classes=10):
+def federated_train_proximal(global_model, g_model, client_loaders, criterion, num_rounds=10, num_local_epochs=1, lr=0.001, mu=0.01, num_classes=10):
     """FedProx: 带有近端项的联邦训练"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     global_model.to(device)
@@ -61,7 +66,7 @@ def federated_train_proximal(global_model, client_loaders, criterion, num_rounds
         # 训练所有客户端
         for client_id, loader in enumerate(client_loaders):
             # 克隆全局模型
-            local_model = LeNet(num_classes).cuda()
+            local_model = g_model.cuda()
             local_model.load_state_dict(global_model.state_dict())
             local_model.to(device)
             optimizer = optim.Adam(local_model.parameters(), lr=lr)
@@ -102,7 +107,7 @@ def federated_train_proximal(global_model, client_loaders, criterion, num_rounds
     return global_model
 
 
-def federated_train_opt(global_model, client_loaders, criterion, num_rounds=10, num_local_epochs=1, lr=0.001, 
+def federated_train_opt(global_model, g_model, client_loaders, criterion, num_rounds=10, num_local_epochs=1, lr=0.001, 
                          server_lr=0.1, server_momentum=0.9, num_classes=10):
     """FedOpt: 带有服务器优化器的联邦学习"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -124,7 +129,7 @@ def federated_train_opt(global_model, client_loaders, criterion, num_rounds=10, 
         # 训练所有客户端
         for client_id, loader in enumerate(client_loaders):
             # 克隆全局模型
-            local_model = LeNet(num_classes).cuda()
+            local_model = g_model.cuda()
             local_model.load_state_dict(global_model.state_dict())
             local_model.to(device)
             optimizer = optim.Adam(local_model.parameters(), lr=lr)
