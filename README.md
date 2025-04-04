@@ -12,10 +12,7 @@ conda activate attackfu
 
 ```python
 pip install -r requirements.txt
-```
-
-```python
-cd Gradient-Inversion-Attacks-in-Federated-Unlearning
+cd GIAFU
 ```
 
 ##  Datasets
