@@ -1,13 +1,13 @@
 # Gradient-Inversion-Attacks-in-Federated-Unlearning
 The repositorie is the code of Gradient Inversion Attacks in Federated Unlearning
 
-####  Create and activate environment.
+##  Create and activate environment.
 ```python
 conda create -n attackfu python=3.10
 conda activate attackfu
 ```
 
-####  Install the required repository.
+##  Install the required repository.
 
 ```python
 pip install -r requirements.txt
@@ -18,7 +18,7 @@ cd Gradient-Inversion-Attacks-in-Federated-Unlearning
 ```
 
 
-#### Generate Federate Model
+## Generate Federate Model
 
 ```python
 python training.py --model lenet --dataset CIFAR10 --type sample --unlearning retrain --aggregation fedavg
@@ -33,7 +33,7 @@ option:
 --aggregation fedavg, fedprox, fedopt
 ```
 
-#### Quick Start
+## Quick Start
 
 ```python
 python main.py --lr 1e-4 --epochs 30 --leak_mode none --dataset CIFAR10 --batch_size 256 --shared_model LeNet --type sample --unlearning retrain --state attack

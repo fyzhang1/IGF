@@ -14,10 +14,10 @@ import torchvision
 from torchvision import models, datasets, transforms
 from scipy.optimize import linear_sum_assignment
 
-from utils import label_to_onehot, cross_entropy_for_onehot
+from utils_com.utils import label_to_onehot, cross_entropy_for_onehot
 from models.vision import LeNetMnist, weights_init, LeNet
 from models.resnet import resnet20,mnist_resnet20
-from logger import set_logger
+from utils_com.logger import set_logger
 import lpips
 
 # python main_resnet.py --lr 1e-4 --epochs 25 --leak_mode none --dataset CIFAR10 --batch_size 256 --shared_model ResNet20 --type class --unlearning efficient
@@ -455,7 +455,7 @@ def new_leakage_dataset(images, labels, full_net, unlearn_net):
         dy_dx_unlearn = torch.autograd.grad(loss_unlearn, [para for para in unlearn_net.parameters() if para.requires_grad])
         original_dy_dx_unlearn = torch.cat(list((_.detach().clone().view(-1) for _ in dy_dx_unlearn)))
 
-        diff_grad = original_dy_dx_full - scale * original_dy_dx_unlearn
+        diff_grad = original_dy_dx_full - original_dy_dx_unlearn
         
         targets[i] = image.view(-1)
         if features is None:

@@ -18,14 +18,16 @@ from torchvision import models, datasets, transforms
 from scipy.optimize import linear_sum_assignment
 from scipy.fftpack import dct, idct
 from scipy import stats
-from utils import label_to_onehot, cross_entropy_for_onehot
+from utils_com.utils import label_to_onehot, cross_entropy_for_onehot
 from models.vision import LeNetMnist, weights_init, LeNet, LeNet_CIFAR100
 from models.resnet import resnet20
-from logger import set_logger
+from utils_com.logger import set_logger
 import random
 import lpips
 import matplotlib.pyplot as plt
-from defense import *
+# from utils.defense import *
+from utils_com.defense import *
+from utils_com.federated import *
 """
 参数定义
 """
@@ -504,8 +506,7 @@ def leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_forgotte
         grad_unlearned = torch.cat([g.detach().view(-1) for g in dy_dx_unlearned])
 
         # 放大未学习模型的梯度并计算差异
-        diff_grad = grad_full - scale * grad_unlearned
-        # diff_grad = grad_full - grad_unlearned
+        diff_grad = grad_full - grad_unlearned
 
         # 存储差异梯度（特征）和原始图像（目标）
         features[i] = diff_grad

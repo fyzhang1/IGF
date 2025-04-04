@@ -5,13 +5,13 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset
 import numpy as np
 from tqdm import tqdm
-from utils import label_to_onehot, cross_entropy_for_onehot
+from utils_com.utils import label_to_onehot, cross_entropy_for_onehot
 from models.resnet import resnet20,mnist_resnet20
 from models.vision import weights_init, LeNet,LeNetMnist
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset
 import argparse
-from federated import federated_train, federated_train_opt, federated_train_proximal
+from utils_com.federated import federated_train, federated_train_opt, federated_train_proximal
 
 
 

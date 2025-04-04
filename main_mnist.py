@@ -18,10 +18,10 @@ from torchvision import models, datasets, transforms
 from scipy.optimize import linear_sum_assignment
 from scipy.fftpack import dct, idct
 from scipy import stats
-from utils import label_to_onehot, cross_entropy_for_onehot
+from utils_com.utils import label_to_onehot, cross_entropy_for_onehot
 from models.vision import LeNetMnist, weights_init, LeNet, LeNet5
 from models.resnet import resnet20
-from logger import set_logger
+from utils_com.logger import set_logger
 import random
 import lpips
 import matplotlib.pyplot as plt
