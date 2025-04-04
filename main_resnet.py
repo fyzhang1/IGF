@@ -16,11 +16,11 @@ from scipy.optimize import linear_sum_assignment
 
 from utils import label_to_onehot, cross_entropy_for_onehot
 from models.vision import LeNetMnist, weights_init, LeNet
-from models.resnet import resnet20
+from models.resnet import resnet20,mnist_resnet20
 from logger import set_logger
 import lpips
 
-# python main_resnet.py --lr 1e-4 --epochs 30 --leak_mode none --dataset CIFAR10 --batch_size 256 --shared_model ResNet20 --type sample --unlearning retrain
+# python main_resnet.py --lr 1e-4 --epochs 25 --leak_mode none --dataset CIFAR10 --batch_size 256 --shared_model ResNet20 --type class --unlearning efficient
 
 
 parser = argparse.ArgumentParser(description='Deep Leakage from Gradients with SVD.')
@@ -48,6 +48,8 @@ parser.add_argument('--type', type=str, default="sample",
                     help='unlearning type')
 parser.add_argument('--unlearning', type=str, default="retrain",
                     help='unlearning: retrain,efficient')
+parser.add_argument('--state', type=str, default="attack",
+                    help='attack, defense')
 args = parser.parse_args()
 
 if args.resume is not None:
@@ -60,6 +62,8 @@ logger.info(args)
 logger.info(f"logs are saved at print_logs/{save_file_name}.txt")
 
 save_dir = "./"
+pseudo = False
+
 
 def train(grad_to_img_net, net, data_loader, sign=False, mask=None, prune_rate=None, leak_batch=1):
     grad_to_img_net.train()
@@ -86,28 +90,20 @@ def train(grad_to_img_net, net, data_loader, sign=False, mask=None, prune_rate=N
             xs.mul_(mask)
         
         # 使用 SVD 降维矩阵投影梯度
-        xs = torch.mm(xs, V_k)  # xs: (batch_num, model_size) -> (batch_num, k)
-        if gauss_noise > 0:
-            xs = xs + torch.randn(*xs.shape).cuda() * gauss_noise
         
+        print("xs 压缩前的尺寸:", xs.shape)
+        # xs = torch.mm(xs, V_k)  # xs: (batch_num, model_size) -> (batch_num, k)
+        # if gauss_noise > 0:
+        #     xs = xs + torch.randn(*xs.shape).cuda() * gauss_noise
+        # print("xs 压缩后的尺寸:", xs.shape)
+
+        xs = svd_extractor.transform(xs)
+        print("xs 压缩后的尺寸:", xs.shape)
 
         xs = xs.view(batch_size, leak_batch, -1).mean(1).cuda()  # (batch_size, k)
         ys = ys.view(batch_size, leak_batch, -1).cuda()
         grad_to_img_net = grad_to_img_net.cuda()
         preds = grad_to_img_net(xs).view(batch_size, leak_batch, -1)
-
-
-        # batch_wise_mse = (torch.cdist(ys, preds) ** 2) / image_size
-        # loss = 0
-        # for mse_mat in batch_wise_mse:
-        #     row_ind, col_ind = linear_sum_assignment(mse_mat.detach().cpu().numpy())
-        #     loss += mse_mat[row_ind, col_ind].mean()
-        # loss /= batch_size
-        # if i % 10 == 0:
-        #     logger.info(f"train iter: {i}; loss: {loss}")
-        # loss.backward()
-        # optimizer.step()
-        # total_loss += loss.item() * batch_num
 
         # Compute MSE loss with matching per sample
         mse_loss = 0
@@ -129,8 +125,17 @@ def train(grad_to_img_net, net, data_loader, sign=False, mask=None, prune_rate=N
         # Prepare matched images for perceptual loss
         matched_reconstructed_all = torch.stack(matched_reconstructed, dim=0).view(batch_size * leak_batch, image_size)
         matched_real_all = torch.stack(matched_real, dim=0).view(batch_size * leak_batch, image_size)
-        reconstructed_images_matched = matched_reconstructed_all.view(batch_size * leak_batch, 3, 32, 32).to('cuda')
-        real_images_matched = matched_real_all.view(batch_size * leak_batch, 3, 32, 32).to('cuda')
+
+        if args.dataset in ["MNIST", "FashionMNIST"]:
+            reconstructed_images_matched = matched_reconstructed_all.view(batch_size * leak_batch, 1, 28, 28).to('cuda')
+            real_images_matched = matched_real_all.view(batch_size * leak_batch, 1, 28, 28).to('cuda')
+
+        elif args.dataset.startswith("CIFAR10"):
+            reconstructed_images_matched = matched_reconstructed_all.view(batch_size * leak_batch, 3, 32, 32).to('cuda')
+            real_images_matched = matched_real_all.view(batch_size * leak_batch, 3, 32, 32).to('cuda')
+
+
+
         loss_fn_vgg = lpips.LPIPS(net='vgg').to('cuda')
 
         real_images_matched = real_images_matched * 2 - 1   # [0,1] -> [-1,1]
@@ -177,9 +182,11 @@ def test(grad_to_img_net, net, data_loader, sign=False, mask=None, prune_rate=No
                 xs = xs * mask
                 
             # 使用 SVD 降维矩阵投影梯度
-            xs = torch.mm(xs, V_k)  # xs: (batch_num, model_size) -> (batch_num, k)
-            if gauss_noise > 0:
-                xs = xs + torch.randn(*xs.shape).cuda() * gauss_noise
+            # xs = torch.mm(xs, V_k)  # xs: (batch_num, model_size) -> (batch_num, k)
+            # if gauss_noise > 0:
+            #     xs = xs + torch.randn(*xs.shape).cuda() * gauss_noise
+
+            xs = svd_extractor.transform(xs)
                 
             xs = xs.view(batch_size, leak_batch, -1).mean(1).cuda()  # (batch_size, k)
             ys = ys.view(batch_size, leak_batch, -1).cuda()
@@ -211,10 +218,10 @@ def test(grad_to_img_net, net, data_loader, sign=False, mask=None, prune_rate=No
 if args.dataset in ["FashionMNIST", "MNIST"]:
     image_size = 784
     num_classes = 10
-elif args.dataset.startswith("CIFAR10"):
+elif args.dataset == "CIFAR10":
     image_size = 3 * 32 * 32
     num_classes = 10
-elif args.dataset.startswith("CIFAR100"):
+elif args.dataset == "CIFAR100":
     image_size = 3 * 32 * 32
     num_classes = 100
 
@@ -234,10 +241,19 @@ for i in range(len(leak_mode_list)):
         gauss_noise = float(leak_mode_list[i+1])
 
 if args.shared_model == "ResNet20":
+    print(num_classes)
     net = resnet20(num_classes).to("cuda")
     compress_rate = 0.5
     torch.manual_seed(1234)
     net.apply(weights_init)
+    model = resnet20(num_classes)
+elif args.shared_model == "ResnetMnist":
+    net = mnist_resnet20(num_classes)
+    compress_rate = 1.0
+    torch.manual_seed(1234)
+    net.apply(weights_init)
+    criterion = cross_entropy_for_onehot
+    model = mnist_resnet20(num_classes)
 
 model_size = 0
 for i, parameters in enumerate(net.parameters()):
@@ -249,11 +265,11 @@ logger.info("loading dataset...")
 if args.dataset == "MNIST":
     transform = transforms.Compose([transforms.ToTensor()])
     dst_train = datasets.MNIST("~/.torch", download=True, train=True, transform=transform)
-    dst_test = datasets.MNIST("~/.torch", download=True, train=False, transform=transform)
+    dst_validation = datasets.MNIST("~/.torch", download=True, train=False, transform=transform)
 elif args.dataset == "FashionMNIST":
     transform = transforms.Compose([transforms.ToTensor()])
     dst_train = datasets.FashionMNIST("~/.torch", download=True, train=True, transform=transform)
-    dst_test = datasets.FashionMNIST("~/.torch", download=True, train=False, transform=transform)
+    dst_validation = datasets.FashionMNIST("~/.torch", download=True, train=False, transform=transform)
 elif args.dataset.startswith("CIFAR10"):
     transform = transforms.Compose([transforms.ToTensor()])
     dst_train = datasets.CIFAR10("~/.torch", download=True, train=True, transform=transform)
@@ -398,19 +414,19 @@ test_loader = torch.utils.data.DataLoader(dataset=forgotten_dataset, batch_size=
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("开始实例化全局模型")
 # 实例化全样本模型
-full_net = resnet20(num_classes).to(device)
+full_net = model.to(device)
 criterion = nn.CrossEntropyLoss()  # 交叉熵损失
 optimizer_full = torch.optim.Adam(full_net.parameters(), lr=0.001)  # Adam优化器，学习率0.001
 
-unlearned_net = resnet20(num_classes).to(device)
+unlearned_net = model.to(device)
 optimizer_unlearned = torch.optim.Adam(unlearned_net.parameters(), lr=0.001)
 
-full_model_path = "/home/ecs-user/fgi/federated_weight/Resnet/retrain/cifar10/CIFAR10_class_retrain_federated_full_round_20_partial.pth"
+full_model_path = "/home/ecs-user/fgi/federated_weight/resnet20/CIFAR10/CIFAR10_class_efficient_fedavg_federated_full_round_20_partial.pth"
 print(f"Found existing full model at '{full_model_path}', loading weights...")
 full_net.load_state_dict(torch.load(full_model_path))
 
 
-unlearned_model_path = "/home/ecs-user/fgi/federated_weight/Resnet/retrain/cifar10/CIFAR10_class_retrain_federated_unlearned_round_20_partial.pth"
+unlearned_model_path = "/home/ecs-user/fgi/federated_weight/resnet20/CIFAR10/CIFAR10_class_efficient_fedavg_federated_unlearned_round_20_partial.pth"
 print(f"Found existing unlearned model at '{unlearned_model_path}', loading weights...")
 unlearned_net.load_state_dict(torch.load(unlearned_model_path))
 
@@ -421,6 +437,8 @@ def new_leakage_dataset(images, labels, full_net, unlearn_net):
     batch_size = len(images)
     targets = torch.zeros([batch_size, images.view(batch_size, -1).size()[-1]])
     features = None
+    scale=2.0
+
     for i, (image, label) in enumerate(zip(images, labels)):
         image = image.unsqueeze(0)
         label = label.unsqueeze(0)
@@ -437,7 +455,7 @@ def new_leakage_dataset(images, labels, full_net, unlearn_net):
         dy_dx_unlearn = torch.autograd.grad(loss_unlearn, [para for para in unlearn_net.parameters() if para.requires_grad])
         original_dy_dx_unlearn = torch.cat(list((_.detach().clone().view(-1) for _ in dy_dx_unlearn)))
 
-        diff_grad = original_dy_dx_full - original_dy_dx_unlearn
+        diff_grad = original_dy_dx_full - scale * original_dy_dx_unlearn
         
         targets[i] = image.view(-1)
         if features is None:
@@ -445,85 +463,126 @@ def new_leakage_dataset(images, labels, full_net, unlearn_net):
         features[i] = diff_grad
     return features, targets
 
-def leakage_dataset(images, labels, net):
-    net.eval()
-    criterion = cross_entropy_for_onehot
-    batch_size = len(images)
-    targets = torch.zeros([batch_size, images.view(batch_size, -1).size()[-1]])
-    features = None
-    for i, (image, label) in enumerate(zip(images, labels)):
-        image = image.unsqueeze(0).cuda()
-        label = label.unsqueeze(0).cuda()
-        onehot_label = label_to_onehot(label, num_classes=num_classes)
-        image, onehot_label = image.cuda(), onehot_label.cuda()
-        pred = net(image)
-        loss = criterion(pred, onehot_label)
-        dy_dx = torch.autograd.grad(loss, [para for para in net.parameters() if para.requires_grad])
-        original_dy_dx = torch.cat(list((_.detach().clone().view(-1) for _ in dy_dx)))
-        targets[i] = image.view(-1)
-        if features is None:
-            features = torch.zeros([batch_size, len(original_dy_dx)], device='cuda')
-        features[i] = original_dy_dx
-    return features, targets
+
 
 # 计算 SVD 降维矩阵
-logger.info("Computing SVD for gradient compression...")
-num_samples_for_svd = 5000  # 用于 SVD 的样本数量
-svd_loader = torch.utils.data.DataLoader(dataset=aux_dataset, batch_size=num_samples_for_svd, shuffle=True)
-data = next(iter(svd_loader))
-images, labels = data
-# xs, _ = leakage_dataset(images, labels, net)
-xs, _ = new_leakage_dataset(images,labels,full_net,unlearned_net)
-U, S, V = torch.svd(xs.cpu())  # 对梯度矩阵进行 SVD 分解
-k = 5000 # 目标降维维度
-V_k = V[:, :k].cuda()  # 降维矩阵，形状为 (model_size, k)
-logger.info(f"SVD completed, reduced dimension from {model_size} to {k}")
+class SVDExtractor:
+    def __init__(self, k=0.95):
+        self.k = k  # 支持按方差比例选择维度
+        self.V_k = None
+        self.mean = None
+
+    def fit(self, grad_data):
+        """在梯度数据上训练SVD"""
+        # 中心化
+        self.mean = grad_data.mean(dim=0, keepdim=True)
+        grad_centered = grad_data - self.mean
+        
+        # 随机SVD加速计算
+        U, S, V = torch.svd_lowrank(grad_centered, q=min(1000, grad_data.size(0)//2))
+        
+        # 动态选择k值
+        explained_variance = S.pow(2).cumsum(0) / S.pow(2).sum()
+        if isinstance(self.k, float):
+            k = torch.where(explained_variance >= self.k)[0][0].item()+1
+            print("k1",k)
+        else:
+            k = self.k
+            print("k2",k)
+        self.V_k = V[:, :k]  # (model_size, k)
+        
+    def transform(self, grad_data):
+        """应用SVD投影"""
+        return (grad_data - self.mean.to(grad_data.device)) @ self.V_k.to(grad_data.device)
+
+svd_extractor = SVDExtractor(k=0.95)  # 保留95%方差
+
+# 计算SVD
+num_samples_for_svd = 10000
+svd_loader = torch.utils.data.DataLoader(aux_dataset, batch_size=num_samples_for_svd, shuffle=True)
+images, labels = next(iter(svd_loader))
+xs, _ = new_leakage_dataset(images, labels, full_net, unlearned_net) 
+
+svd_extractor.fit(xs.cpu())
+V_k = svd_extractor.V_k  # 获取投影矩阵
+
+print("k:", V_k.shape)
+k = svd_extractor.V_k.size(1)
+print("k:", k)
 
 single_infer = False
 
-if args.model.startswith("MLP"):
-    hidden_size = int(args.model.split("-")[-1])
-    output_size = image_size if single_infer else image_size * leak_batch
-    grad_to_img_net = nn.Sequential(
-        nn.Linear(int(k), hidden_size),
-        nn.ReLU(),
-        nn.Linear(hidden_size, hidden_size),
-        nn.ReLU(),
-        nn.Linear(hidden_size, output_size)
-    )
-    grad_to_img_net = grad_to_img_net.cuda()
 
-
-# 定义梯度到图像的模型
-# class ConvDecoder(nn.Module):
-#     def __init__(self, input_size, output_channels=3, leak_batch=1):
-#         super().__init__()
-#         self.input_size = input_size
-#         self.fc = nn.Linear(input_size, 512 * 4 * 4)  # input_size 应为 k
-#         self.decoder = nn.Sequential(
-#             nn.Conv2d(512, 512, 3, padding=1),
-#             nn.BatchNorm2d(512),
-#             nn.ReLU(),
-#             nn.PixelShuffle(2),  # 8x8
-#             nn.Conv2d(128, 256, 3, padding=1),
-#             nn.BatchNorm2d(256),
-#             nn.ReLU(),
-#             nn.PixelShuffle(2),  # 16x16
-#             nn.Conv2d(64, 128, 3, padding=1),
-#             nn.BatchNorm2d(128),
-#             nn.ReLU(),
-#             nn.PixelShuffle(2),  # 32x32
-#             nn.Conv2d(32, 3 * leak_batch, 3, padding=1),
-#             nn.Sigmoid()
-#         )
+torch.manual_seed(0)
+selected_para = torch.randperm(model_size)[:int(model_size * compress_rate)]
+class ConvDecoder(nn.Module):
+    def __init__(self, input_size, output_channels=3, leak_batch=1):
+        super().__init__()
+        self.input_size = input_size
+        self.fc = nn.Linear(input_size, 512 * 4 * 4)
+        self.decoder = nn.Sequential(
+            nn.Conv2d(512, 512, 3, padding=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(),
+            nn.PixelShuffle(2),  # 8x8
+            
+            nn.Conv2d(128, 256, 3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.PixelShuffle(2),  # 16x16
+            
+            nn.Conv2d(64, 128, 3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.PixelShuffle(2),  # 32x32
+            
+            nn.Conv2d(32, 3 * leak_batch, 3, padding=1),
+            nn.Sigmoid()
+        )
     
-#     def forward(self, x):
-#         x = self.fc(x)
-#         x = x.view(-1, 512, 4, 4)
-#         x = self.decoder(x)
-#         return x.view(x.size(0), -1)
+    def forward(self, x):
+        x = self.fc(x)
+        x = x.view(-1, 512, 4, 4)
+        x = self.decoder(x)
+        return x.view(x.size(0), -1)
 
-# grad_to_img_net = ConvDecoder(k, leak_batch=leak_batch).cuda()  # 输入维度为 k
+
+class Mnist_ConvDecoder(nn.Module):
+    def __init__(self, input_size, leak_batch=1):
+        super().__init__()
+        self.input_size = input_size
+        self.fc = nn.Linear(input_size, 512 * 7 * 7) 
+        self.decoder = nn.Sequential(
+            nn.Conv2d(512, 256, 3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.PixelShuffle(2),  # 8x8
+            
+            nn.Conv2d(64, 128, 3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.PixelShuffle(2),  # 32x32
+            
+            nn.Conv2d(32, 1 * leak_batch, 3, padding=1),
+            nn.Sigmoid()
+        )
+    
+    def forward(self, x):
+        x = self.fc(x)
+        x = x.view(-1, 512, 7, 7)
+        x = self.decoder(x)
+        return x.view(x.size(0), -1)
+
+
+
+if args.dataset == "MNIST":
+    grad_to_img_net = Mnist_ConvDecoder(int(k), leak_batch=leak_batch).cuda()
+elif args.dataset == "FashionMNIST":
+    grad_to_img_net = Mnist_ConvDecoder(int(k), leak_batch=leak_batch).cuda()
+elif args.dataset.startswith("CIFAR10"):
+    grad_to_img_net = ConvDecoder(int(k), leak_batch=leak_batch).cuda()
+
+
 
 size = 0
 for parameters in grad_to_img_net.parameters():
@@ -578,11 +637,11 @@ checkpoint["optimizer_state_dict"] = optimizer.state_dict()
 if args.dataset.startswith("wikitext") or args.dataset.startswith("cola"):
     checkpoint["val_reconstructed_imgs"] = reconstructed_imgs
     checkpoint["gt_data"] = dst_validation["labels"]
-elif args.dataset.startswith("CIFAR10") or args.dataset.startswith("CIFAR100"):
+else:
     checkpoint["reconstructed_imgs"] = reconstructed_imgs[0]
     checkpoint["gt_data"] = reconstructed_imgs[1]
 checkpoint["epoch"] = epoch
     # torch.save(checkpoint, f"{save_dir}/checkpoint/{save_file_name}_version1.pt")
 
-torch.save(checkpoint, f"checkpoint/{args.dataset}_{args.unlearning}_{args.type}_{args.model}_{args.leak_mode}_{args.lr}_{args.epochs}_{args.batch_size}.pt")
+torch.save(checkpoint, f"checkpoint/{args.shared_model}_{args.dataset}_{args.unlearning}_{args.type}_{args.model}_{args.leak_mode}_{args.lr}_{args.epochs}_{args.batch_size}.pt")
 grad_to_img_net = grad_to_img_net.cuda()

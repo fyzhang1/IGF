@@ -18,10 +18,10 @@ cd Gradient-Inversion-Attacks-in-Federated-Unlearning
 ```
 
 
-## 1.Generate the federared global model
+#### Generate Federate Model
 
 ```python
-python training.py --model mnist_resnet20 --dataset MNIST --type sample --unlearning retrain --aggregation fedavg
+python training.py --model lenet --dataset CIFAR10 --type sample --unlearning retrain --aggregation fedavg
 ```
 
 ```python
@@ -33,23 +33,8 @@ option:
 --aggregation fedavg, fedprox, fedopt
 ```
 
-## 2.Importing model to attack
-find the definition of ```full_net``` and ```unlearn_net```; import the path of federated model weight
+#### Quick Start
 
 ```python
 python main.py --lr 1e-4 --epochs 30 --leak_mode none --dataset CIFAR10 --batch_size 256 --shared_model LeNet --type sample --unlearning retrain --state attack
-```
-
-```python
-option:
---dataset CIFAR10, CIFAR100, MNIST, FashionMNIST
---leak_mode sign/prune-{prune_rate}/batch-{batch_size}/perturb-0.01/smooth-0.1
---shared_model LeNet
---type sample, class, client
---unlearning retrain, efficient
---state attack, defense
-```
-
-```python
-python main.py --lr 1e-4 --epochs 30 --leak_mode perturb-0.01 --dataset CIFAR10 --batch_size 256 --shared_model Resnet20 --type sample --unlearning retrain
 ```

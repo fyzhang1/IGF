@@ -19,7 +19,7 @@ from scipy.optimize import linear_sum_assignment
 from scipy.fftpack import dct, idct
 from scipy import stats
 from utils import label_to_onehot, cross_entropy_for_onehot
-from models.vision import LeNetMnist, weights_init, LeNet
+from models.vision import LeNetMnist, weights_init, LeNet, LeNet_CIFAR100
 from models.resnet import resnet20
 from logger import set_logger
 import random
@@ -30,7 +30,7 @@ from defense import *
 参数定义
 """
 
-# python main.py --lr 1e-4 --epochs 30 --leak_mode none --dataset CIFAR10 --batch_size 256 --shared_model LeNet --type sample --unlearning efficient-test3 --state attack
+# python main.py --lr 1e-4 --epochs 30 --leak_mode none --dataset CIFAR100 --batch_size 256 --shared_model LeNet --type sample --unlearning efficient --state attack
 parser = argparse.ArgumentParser(description='Deep Leakage from Gradients.')
 parser.add_argument('--dataset', type=str, default="MNIST",
                     help='dataset to do the experiment')
@@ -85,9 +85,7 @@ def get_class_samples(dataset, num_samples_per_class=10):
 """
 
 
-
 def train(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, leak_batch=1):
-    # gpt
     grad_to_img_net.train()
     total_loss = 0
     total_num = 0
@@ -98,10 +96,8 @@ def train(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, 
         batch_num = batch_size * leak_batch
         total_num += batch_num
         xs, ys = xs[:batch_num, selected_para].cuda(), ys[:batch_num].cuda()
-
-        """
-        这里的部分我们不用太考虑
-        """
+        # vgg = models.vgg16(pretrained=True).features.eval().to('cuda')
+        
         if sign:
             xs = torch.sign(xs)
         if prune_rate is not None:
@@ -112,109 +108,63 @@ def train(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, 
             xs = xs * mask
         if gauss_noise > 0:
             xs = xs + torch.randn(*xs.shape).cuda() * gauss_noise
+        if perturb > 0:
+            xs = perturb_gradient(xs, sensitivity_factor=0.1, perturbation_scale=perturb)
+        if smooth > 0:
+            xs = smooth_gradient(xs, smoothing_factor=smooth)
 
-        xs = xs.view(batch_size, leak_batch, -1).mean(1) 
-        ys = ys.view(batch_size, leak_batch, -1)
-
-        # 输入梯度，输出恢复的图像
-        preds = grad_to_img_net(xs).view(batch_size, leak_batch, -1) # pred: torch.Size([256, 1, 3072])
+        xs = xs.view(batch_size, leak_batch, -1).mean(1)
+        ys = ys.view(batch_size, leak_batch, image_size)
+        preds = grad_to_img_net(xs).view(batch_size, leak_batch, image_size)
         
-        # 使用均方误差（MSE）衡量恢复图像与原始图像的差异，并通过匈牙利算法匹配批次内的样本顺序
-        batch_wise_mse = (torch.cdist(ys, preds) ** 2) / image_size
-        loss = 0
-        for mse_mat in batch_wise_mse:
+        # Compute MSE loss with matching per sample
+        mse_loss = 0
+        matched_reconstructed = []
+        matched_real = []
+        for sample_id in range(batch_size):
+            ys_sample = ys[sample_id]
+            preds_sample = preds[sample_id]
+            distance_matrix = torch.cdist(ys_sample, preds_sample)
+            mse_mat = (distance_matrix ** 2) / image_size
             row_ind, col_ind = linear_sum_assignment(mse_mat.detach().cpu().numpy())
-            loss += mse_mat[row_ind, col_ind].mean()
+            mse_loss_sample = mse_mat[row_ind, col_ind].mean()
+            mse_loss += mse_loss_sample
+            # Collect matched reconstructed and real images
+            matched_reconstructed.append(preds_sample[col_ind])
+            matched_real.append(ys_sample[row_ind])
+        
+        mse_loss /= batch_size
+        
+        # Prepare matched images for perceptual loss
+        matched_reconstructed_all = torch.stack(matched_reconstructed, dim=0).view(batch_size * leak_batch, image_size)
+        matched_real_all = torch.stack(matched_real, dim=0).view(batch_size * leak_batch, image_size)
+        reconstructed_images_matched = matched_reconstructed_all.view(batch_size * leak_batch, 3, 32, 32).to('cuda')
+        real_images_matched = matched_real_all.view(batch_size * leak_batch, 3, 32, 32).to('cuda')
+        
 
-        loss /= batch_size
-        loss.backward()
+        loss_fn_vgg = lpips.LPIPS(net='vgg').to('cuda')
+        # # Compute perceptual loss
+        perceptual_loss = loss_fn_vgg(real_images_matched, reconstructed_images_matched).mean()
+
+        real_images_matched = real_images_matched * 2 - 1   # [0,1] -> [-1,1]
+        reconstructed_images_matched = reconstructed_images_matched * 2 - 1
+        real_images_matched = real_images_matched
+        reconstructed_images_matched = reconstructed_images_matched
+        perceptual_loss = loss_fn_vgg(real_images_matched, reconstructed_images_matched).mean()
+
+        
+        # Total loss
+        total_loss = mse_loss + 0.1 * perceptual_loss
+
+        print("perceptual_loss:", perceptual_loss)
+        
+        total_loss.backward()
         optimizer.step()
-        total_loss += loss.item() * batch_num
+        total_loss_value = total_loss.item() * batch_num
+        total_loss += total_loss_value
             
     total_loss = total_loss / len(data_loader.dataset)
     return total_loss
-
-
-# def train(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, leak_batch=1):
-#     grad_to_img_net.train()
-#     total_loss = 0
-#     total_num = 0
-#     for i, (xs, ys) in enumerate(tqdm(data_loader)):
-#         optimizer.zero_grad()
-#         batch_num = len(ys)
-#         batch_size = int(batch_num / leak_batch)
-#         batch_num = batch_size * leak_batch
-#         total_num += batch_num
-#         xs, ys = xs[:batch_num, selected_para].cuda(), ys[:batch_num].cuda()
-#         vgg = models.vgg16(pretrained=True).features.eval().to('cuda')
-        
-#         if sign:
-#             xs = torch.sign(xs)
-#         if prune_rate is not None:
-#             mask = torch.zeros(xs.size()).cuda()
-#             rank = torch.argsort(xs.abs(), dim=1)[:,  -int(xs.size()[1] * (1 - prune_rate)):]
-#             mask[torch.arange(len(ys)).view(-1, 1).expand(rank.size()), rank] = 1   
-#         if mask is not None:
-#             xs = xs * mask
-#         if gauss_noise > 0:
-#             xs = xs + torch.randn(*xs.shape).cuda() * gauss_noise
-#         if perturb > 0:
-#             xs = perturb_gradient(xs, sensitivity_factor=0.1, perturbation_scale=perturb)
-#         if smooth > 0:
-#             xs = smooth_gradient(xs, smoothing_factor=smooth)
-
-#         xs = xs.view(batch_size, leak_batch, -1).mean(1)
-#         ys = ys.view(batch_size, leak_batch, image_size)
-#         preds = grad_to_img_net(xs).view(batch_size, leak_batch, image_size)
-        
-#         # Compute MSE loss with matching per sample
-#         mse_loss = 0
-#         matched_reconstructed = []
-#         matched_real = []
-#         for sample_id in range(batch_size):
-#             ys_sample = ys[sample_id]
-#             preds_sample = preds[sample_id]
-#             distance_matrix = torch.cdist(ys_sample, preds_sample)
-#             mse_mat = (distance_matrix ** 2) / image_size
-#             row_ind, col_ind = linear_sum_assignment(mse_mat.detach().cpu().numpy())
-#             mse_loss_sample = mse_mat[row_ind, col_ind].mean()
-#             mse_loss += mse_loss_sample
-#             # Collect matched reconstructed and real images
-#             matched_reconstructed.append(preds_sample[col_ind])
-#             matched_real.append(ys_sample[row_ind])
-        
-#         mse_loss /= batch_size
-        
-#         # Prepare matched images for perceptual loss
-#         matched_reconstructed_all = torch.stack(matched_reconstructed, dim=0).view(batch_size * leak_batch, image_size)
-#         matched_real_all = torch.stack(matched_real, dim=0).view(batch_size * leak_batch, image_size)
-#         reconstructed_images_matched = matched_reconstructed_all.view(batch_size * leak_batch, 3, 32, 32).to('cuda')
-#         real_images_matched = matched_real_all.view(batch_size * leak_batch, 3, 32, 32).to('cuda')
-        
-
-#         loss_fn_vgg = lpips.LPIPS(net='vgg').to('cuda')
-#         # # Compute perceptual loss
-#         # perceptual_loss = loss_fn_vgg(real_images_matched, reconstructed_images_matched).mean()
-
-#         # real_images_matched = real_images_matched * 2 - 1   # [0,1] -> [-1,1]
-#         # reconstructed_images_matched = reconstructed_images_matched * 2 - 1
-#         real_images_matched = real_images_matched
-#         reconstructed_images_matched = reconstructed_images_matched
-#         perceptual_loss = loss_fn_vgg(real_images_matched, reconstructed_images_matched).mean()
-
-        
-#         # Total loss
-#         total_loss = mse_loss + 0.1 * perceptual_loss
-
-#         print("perceptual_loss:", perceptual_loss)
-        
-#         total_loss.backward()
-#         optimizer.step()
-#         total_loss_value = total_loss.item() * batch_num
-#         total_loss += total_loss_value
-            
-#     total_loss = total_loss / len(data_loader.dataset)
-#     return total_loss
 
 
 def test(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, leak_batch=1):
@@ -283,11 +233,26 @@ elif args.dataset in ["FashionMNIST", "MNIST"]:
 """
 
 if args.shared_model == "LeNet":
-    net = LeNet(num_classes).to("cuda")
-    compress_rate = 1.0
-    torch.manual_seed(1234)
-    net.apply(weights_init)
-    criterion = cross_entropy_for_onehot
+    if args.dataset == "CIFAR10":
+        net = LeNet(num_classes).to("cuda")
+        compress_rate = 1.0
+        torch.manual_seed(1234)
+        net.apply(weights_init)
+        criterion = cross_entropy_for_onehot
+        g_model = LeNet(num_classes).to("cuda")
+    else:
+        net = LeNet_CIFAR100().to("cuda")
+        compress_rate = 1.0
+        torch.manual_seed(1234)
+        net.apply(weights_init)
+        criterion = cross_entropy_for_onehot
+        g_model = LeNet_CIFAR100().to("cuda")
+
+    # net = LeNet(num_classes).to("cuda")
+    # compress_rate = 1.0
+    # torch.manual_seed(1234)
+    # net.apply(weights_init)
+    # criterion = cross_entropy_for_onehot
 
 model_size = 0
 for i, parameters in enumerate(net.parameters()):
@@ -507,50 +472,12 @@ print("print dataset")
 print(len(aux_loader.dataset))              
     # print(len(forgotten_loader.dataset))        # 100
 
-# def leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_forgotten=False):
-#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#     full_net.eval()
-#     unlearned_net.eval()
-
-#             # 动态计算模型参数量
-#     model_size = sum(p.numel() for p in full_net.parameters())  # 关键修改
-#     image_size = np.prod(data_loader.dataset[0][0].shape)      # 输入图像的维度（如 1 * 28 * 28）
-        
-#         # Initialize tensors for features and targets
-#     features = torch.zeros([len(data_loader.dataset), model_size], device=device)
-#     targets = torch.zeros([len(data_loader.dataset), image_size], device=device)
-
-#     for i, (images, labels) in enumerate(tqdm(data_loader)):
-#         onehot_labels = label_to_onehot(labels, num_classes)
-#         images, onehot_labels = images.to(device), onehot_labels.to(device)
-            
-#             # Calculate gradients for the full model
-#         pred_full = full_net(images)
-#         loss_full = criterion(pred_full, onehot_labels)
-#         dy_dx_full = torch.autograd.grad(loss_full, full_net.parameters(), create_graph=False)
-#         grad_full = torch.cat([g.detach().view(-1) for g in dy_dx_full])
-
-#             # Calculate gradients for the unlearned model
-#         pred_unlearned = unlearned_net(images)
-#         loss_unlearned = criterion(pred_unlearned, onehot_labels)
-#         dy_dx_unlearned = torch.autograd.grad(loss_unlearned, unlearned_net.parameters(), create_graph=False)
-#         grad_unlearned = torch.cat([g.detach().view(-1) for g in dy_dx_unlearned])
-
-#             # Compute the difference between gradients
-#         diff_grad = grad_full - grad_unlearned
-
-#             # Store the difference gradient (features) and the original image (targets)
-#         features[i] = diff_grad
-#         targets[i] = images.view(-1)
-
-#     return features, targets
-
 
 def leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_forgotten=False):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     full_net.eval()
     unlearned_net.eval()
-    scale = 0.7
+    scale = 2.0
 
     # 动态计算模型参数量
     model_size = sum(p.numel() for p in full_net.parameters())  # 关键修改
@@ -578,6 +505,7 @@ def leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_forgotte
 
         # 放大未学习模型的梯度并计算差异
         diff_grad = grad_full - scale * grad_unlearned
+        # diff_grad = grad_full - grad_unlearned
 
         # 存储差异梯度（特征）和原始图像（目标）
         features[i] = diff_grad
@@ -586,10 +514,10 @@ def leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_forgotte
     return features, targets
 
 def defense_leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_forgotten=False):
+    print("start defense")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     full_net.eval()
     unlearned_net.eval()
-    scale = 0.7
 
     # 动态计算模型参数量
     model_size = sum(p.numel() for p in full_net.parameters())  # 关键修改
@@ -615,10 +543,6 @@ def defense_leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_
         dy_dx_unlearned = torch.autograd.grad(loss_unlearned, unlearned_net.parameters(), create_graph=False)
         grad_unlearned = torch.cat([g.detach().view(-1) for g in dy_dx_unlearned])
 
-        # alpha = 0.5  # 调整系数，值越大差异越小
-        # grad_unlearned_adjusted = (1 - alpha) * grad_unlearned + alpha * grad_full
-        # diff_grad = grad_full - grad_unlearned_adjusted
-
         # 在 leakage_dataset 中
         diff_grad = grad_full - grad_unlearned
 
@@ -630,12 +554,6 @@ def defense_leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_
         diff_grad_obfuscated = (1 - mix_factor) * diff_grad + mix_factor * torch.norm(diff_grad) * random_vector
 
         features[i] = diff_grad_obfuscated
-
-        # 放大未学习模型的梯度并计算差异
-        # diff_grad = grad_full - scale * grad_unlearned
-
-        # 存储差异梯度（特征）和原始图像（目标）
-        features[i] = diff_grad
         targets[i] = images.view(-1)
 
     return features, targets
@@ -644,19 +562,25 @@ def defense_leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("开始实例化全局模型")
 # 实例化全样本模型
-full_net = LeNet(num_classes).to(device)
+
+if args.dataset == "CIFAR10":
+    full_net = LeNet(num_classes).to(device)
+    unlearned_net = LeNet(num_classes).to(device)
+else:
+    full_net = LeNet_CIFAR100().to("cuda")
+    unlearned_net = LeNet_CIFAR100().to("cuda")
+
 criterion = nn.CrossEntropyLoss()  # 交叉熵损失
 optimizer_full = torch.optim.Adam(full_net.parameters(), lr=0.001)  # Adam优化器，学习率0.001
 
-unlearned_net = LeNet(num_classes).to(device)
 optimizer_unlearned = torch.optim.Adam(unlearned_net.parameters(), lr=0.001)
 
-full_model_path = "/home/ecs-user/fgi/defense/CIFAR10_sample_defense_fedavg_federated_full_round_20_partial.pth"
+full_model_path = "/home/ecs-user/fgi/federated_weight/resnet20/CIFAR100/CIFAR100_sample_efficient_fedavg_federated_full_round_20_partial.pth"
 print(f"Found existing full model at '{full_model_path}', loading weights...")
 full_net.load_state_dict(torch.load(full_model_path))
 
 
-unlearned_model_path = "/home/ecs-user/fgi/defense/CIFAR10_sample_defense_fedavg_federated_unlearned_round_20_partial.pth"
+unlearned_model_path = "/home/ecs-user/fgi/federated_weight/resnet20/CIFAR100/CIFAR100_sample_efficient_fedavg_federated_unlearned_round_20_partial.pth"
 print(f"Found existing unlearned model at '{unlearned_model_path}', loading weights...")
 unlearned_net.load_state_dict(torch.load(unlearned_model_path))
 
@@ -729,18 +653,6 @@ print(prune_rate, leak_batch, sign, gauss_noise, perturb)
 """
 torch.manual_seed(0)
 selected_para = torch.randperm(model_size)[:int(model_size * compress_rate)]
-# if args.model.startswith("MLP"):
-#     print(image_size)
-#     hidden_size = int(args.model.split("-")[-1])
-#     grad_to_img_net = nn.Sequential(
-#         nn.Linear(len(selected_para), hidden_size),
-#         nn.ReLU(),
-#         nn.Linear(hidden_size, hidden_size),
-#         nn.ReLU(),
-#         nn.Linear(hidden_size, image_size * leak_batch),
-#         torch.nn.Sigmoid()
-#     )
-#     grad_to_img_net = grad_to_img_net.cuda()
 
 class ConvDecoder(nn.Module):
     def __init__(self, input_size, output_channels=3, leak_batch=1):
@@ -813,9 +725,9 @@ del checkpoint
 
 #learning
 if args.trainset == "full":
-    checkpoint_name = f"checkpoint/{args.dataset}_{args.shared_model}_{args.model}_{args.leak_mode}_{args.lr}_{args.epochs}_{args.batch_size}.pt"
+    checkpoint_name = f"checkpoint/{args.dataset}_{args.shared_model}_{args.unlearning}_{args.leak_mode}_{args.lr}_{args.epochs}_{args.batch_size}.pt"
 else:
-    checkpoint_name = f"checkpoint/{args.dataset}_{args.trainset}_{args.shared_model}_{args.model}_{args.leak_mode}_{args.lr}_{args.epochs}_{args.batch_size}.pt"
+    checkpoint_name = f"checkpoint/{args.dataset}_{args.trainset}_{args.shared_model}_{args.unlearning}_{args.leak_mode}_{args.lr}_{args.epochs}_{args.batch_size}.pt"
     
 if os.path.exists(checkpoint_name):
     checkpoint = torch.load(checkpoint_name)
@@ -852,9 +764,9 @@ for epoch in tqdm(range(args.epochs)):
         checkpoint["reconstructed_imgs"] = reconstructed_imgs
         checkpoint["gt_data"] = gt_data
         if args.trainset == "full":
-            torch.save(checkpoint, f"checkpoint/{args.dataset}_{args.shared_model}_{args.model}_{args.leak_mode}_{args.lr}_{args.epochs}_{args.batch_size}_best.pt")
+            torch.save(checkpoint, f"checkpoint/{args.dataset}_{args.shared_model}_{args.model}_{args.leak_mode}_{args.state}_{args.lr}_{args.epochs}_{args.batch_size}_best.pt")
         else:
-            torch.save(checkpoint, f"checkpoint/{args.dataset}_{args.trainset}_{args.shared_model}_{args.model}_{args.leak_mode}_{args.lr}_{args.epochs}_{args.batch_size}.pt")
+            torch.save(checkpoint, f"checkpoint/{args.dataset}_{args.trainset}_{args.shared_model}_{args.model}_{args.leak_mode}_{args.state}_{args.lr}_{args.epochs}_{args.batch_size}.pt")
     if (epoch+1) == int(0.75 * args.epochs):
         for g in optimizer.param_groups:
             g['lr'] *= 0.1
@@ -873,6 +785,6 @@ import os
 os.makedirs("checkpoint", exist_ok=True)
 
 if args.trainset == "full":
-    torch.save(checkpoint, f"checkpoint/{args.dataset}_{args.unlearning}_{args.type}_{args.model}_{args.leak_mode}_{args.lr}_{args.epochs}_{args.batch_size}.pt")
+    torch.save(checkpoint, f"checkpoint/{args.dataset}_{args.unlearning}_{args.type}_{args.model}_{args.leak_mode}_{args.state}_{args.lr}_{args.epochs}_{args.batch_size}.pt")
 else:
-    torch.save(checkpoint, f"checkpoint/{args.dataset}_{args.trainset}_{args.shared_model}_{args.model}_{args.leak_mode}_{args.lr}_{args.epochs}_{args.batch_size}.pt")
+    torch.save(checkpoint, f"checkpoint/{args.dataset}_{args.trainset}_{args.shared_model}_{args.model}_{args.leak_mode}_{args.state}_{args.lr}_{args.epochs}_{args.batch_size}.pt")
