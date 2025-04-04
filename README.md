@@ -1,13 +1,14 @@
-# Gradient-Inversion-Attacks-in-Federated-Unlearning
-The repositorie is the code of Gradient Inversion Attacks in Federated Unlearning
+# A Crisis of Curiosity: Gradient Inversion Attacks in Federated Unlearning
 
-##  Create and activate environment.
+The repositorie is the code of "A Crisis of Curiosity: Gradient Inversion Attacks in Federated Unlearning".
+
+##  Create and activate environment
 ```python
 conda create -n attackfu python=3.10
 conda activate attackfu
 ```
 
-##  Install the required repository.
+##  Install the required repository
 
 ```python
 pip install -r requirements.txt
@@ -16,6 +17,13 @@ pip install -r requirements.txt
 ```python
 cd Gradient-Inversion-Attacks-in-Federated-Unlearning
 ```
+
+##  Datasets
+- CIFAR10
+- CIFAR100
+- MNIST
+- FashionMNIST
+
 
 
 ## Generate Federate Model
