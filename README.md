@@ -1,7 +1,9 @@
-# A Crisis of Curiosity: Gradient Inversion Attacks in Federated Unlearning
+# Large-Scale Gradient Inversion Attack in Verifiable Federated Unlearning
 
-The repositorie is the code of "A Crisis of Curiosity: Gradient Inversion Attacks in Federated Unlearning".
+The repositorie is the code of "Large-Scale Gradient Inversion Attack in Verifiable
+Federated Unlearning".
 
+---
 ##  Create and activate environment
 ```python
 conda create -n attackfu python=3.10
@@ -14,6 +16,7 @@ conda activate attackfu
 pip install -r requirements.txt
 cd GIAFU
 ```
+---
 
 ##  Datasets
 - CIFAR10
@@ -21,7 +24,7 @@ cd GIAFU
 - MNIST
 - FashionMNIST
 
-
+---
 
 ## Generate Federate Model
 
@@ -37,7 +40,7 @@ option:
 --unlearning retrain, efficient
 --aggregation fedavg, fedprox, fedopt
 ```
-
+---
 ## Quick Start
 
 ```python
