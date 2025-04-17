@@ -20,8 +20,6 @@ from models.resnet import resnet20,mnist_resnet20
 from utils_com.logger import set_logger
 import lpips
 
-# python main_resnet.py --lr 1e-4 --epochs 25 --leak_mode none --dataset CIFAR10 --batch_size 256 --shared_model ResNet20 --type class --unlearning efficient
-
 
 parser = argparse.ArgumentParser(description='Deep Leakage from Gradients with SVD.')
 parser.add_argument('--dataset', type=str, default="MNIST",
@@ -89,23 +87,17 @@ def train(grad_to_img_net, net, data_loader, sign=False, mask=None, prune_rate=N
         if mask is not None:
             xs.mul_(mask)
         
-        # 使用 SVD 降维矩阵投影梯度
         
         print("xs 压缩前的尺寸:", xs.shape)
-        # xs = torch.mm(xs, V_k)  # xs: (batch_num, model_size) -> (batch_num, k)
-        # if gauss_noise > 0:
-        #     xs = xs + torch.randn(*xs.shape).cuda() * gauss_noise
-        # print("xs 压缩后的尺寸:", xs.shape)
 
         xs = svd_extractor.transform(xs)
         print("xs 压缩后的尺寸:", xs.shape)
 
-        xs = xs.view(batch_size, leak_batch, -1).mean(1).cuda()  # (batch_size, k)
+        xs = xs.view(batch_size, leak_batch, -1).mean(1).cuda()
         ys = ys.view(batch_size, leak_batch, -1).cuda()
         grad_to_img_net = grad_to_img_net.cuda()
         preds = grad_to_img_net(xs).view(batch_size, leak_batch, -1)
 
-        # Compute MSE loss with matching per sample
         mse_loss = 0
         matched_reconstructed = []
         matched_real = []
@@ -117,12 +109,11 @@ def train(grad_to_img_net, net, data_loader, sign=False, mask=None, prune_rate=N
             row_ind, col_ind = linear_sum_assignment(mse_mat.detach().cpu().numpy())
             mse_loss_sample = mse_mat[row_ind, col_ind].mean()
             mse_loss += mse_loss_sample
-            # Collect matched reconstructed and real images
+
             matched_reconstructed.append(preds_sample[col_ind])
             matched_real.append(ys_sample[row_ind])
         
         mse_loss /= batch_size
-        # Prepare matched images for perceptual loss
         matched_reconstructed_all = torch.stack(matched_reconstructed, dim=0).view(batch_size * leak_batch, image_size)
         matched_real_all = torch.stack(matched_real, dim=0).view(batch_size * leak_batch, image_size)
 
@@ -180,15 +171,11 @@ def test(grad_to_img_net, net, data_loader, sign=False, mask=None, prune_rate=No
                 mask[torch.arange(len(ys)).view(-1, 1).expand(rank.size()), rank] = 1   
             if mask is not None:
                 xs = xs * mask
-                
-            # 使用 SVD 降维矩阵投影梯度
-            # xs = torch.mm(xs, V_k)  # xs: (batch_num, model_size) -> (batch_num, k)
-            # if gauss_noise > 0:
-            #     xs = xs + torch.randn(*xs.shape).cuda() * gauss_noise
+            
 
             xs = svd_extractor.transform(xs)
                 
-            xs = xs.view(batch_size, leak_batch, -1).mean(1).cuda()  # (batch_size, k)
+            xs = xs.view(batch_size, leak_batch, -1).mean(1).cuda()
             ys = ys.view(batch_size, leak_batch, -1).cuda()
             grad_to_img_net.cuda()
             preds = grad_to_img_net(xs).view(batch_size, leak_batch, -1)
@@ -279,67 +266,57 @@ SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 client_batch_size = 128
-# 定义客户端数量和遗忘参数
 CLIENT_NUM = 4
-FORGOTTEN_CLIENT_IDX = 3  # 要遗忘的客户端索引
-FORGET_SIZE = 1000        # 固定遗忘样本数
+FORGOTTEN_CLIENT_IDX = 3
+FORGET_SIZE = 1000 
 FORGOTTEN_CLASS =1
 
 if args.type == "sample":
-    # 固定划分客户端数据（使用确定性的随机划分）
+
     client_datasets = torch.utils.data.random_split(
         dst_train,
         [len(dst_train)//CLIENT_NUM]*CLIENT_NUM,
-        generator=torch.Generator().manual_seed(SEED)  # 固定划分随机种子
+        generator=torch.Generator().manual_seed(SEED)  
     )
 
-    # 获取目标客户端原始数据索引
+
     target_dataset = client_datasets[FORGOTTEN_CLIENT_IDX]
-    original_indices = target_dataset.indices.copy()  # 原始索引列表
+    original_indices = target_dataset.indices.copy() 
 
-    # 确定性地选择前N个样本作为遗忘集
-    fixed_forgotten_indices = sorted(original_indices)[:FORGET_SIZE]  # 按原始顺序取前1000
+    fixed_forgotten_indices = sorted(original_indices)[:FORGET_SIZE] 
 
-    # 更新客户端数据集划分
     remaining_indices = list(set(original_indices) - set(fixed_forgotten_indices))
     client_datasets[FORGOTTEN_CLIENT_IDX] = torch.utils.data.Subset(dst_train, remaining_indices)
 
-    # 创建遗忘数据集加载器
     forgotten_dataset = torch.utils.data.Subset(dst_train, fixed_forgotten_indices)
     forgotten_loader = torch.utils.data.DataLoader(
         forgotten_dataset, 
         batch_size=128, 
         shuffle=False
     )
-    # 创建客户端加载器（包含更新后的数据集）
+
     client_loaders = [
         torch.utils.data.DataLoader(
             ds, 
             batch_size=128, 
-            shuffle=True,  # 训练时保持shuffle但随机种子固定
+            shuffle=True, 
             generator=torch.Generator().manual_seed(SEED))
         for ds in client_datasets ]
 
 elif args.type == "client":
-    # 固定划分客户端数据
     client_datasets = torch.utils.data.random_split(
         dst_train,
         [len(dst_train)//CLIENT_NUM]*CLIENT_NUM,
         generator=torch.Generator().manual_seed(SEED)
     )
 
-    # 获取目标客户端原始数据
     target_dataset = client_datasets[FORGOTTEN_CLIENT_IDX]
     original_indices = target_dataset.indices.copy()
 
 
-    # 将整个客户端的数据作为遗忘集
     fixed_forgotten_indices = original_indices
-        # 更新客户端数据集为空
     client_datasets[FORGOTTEN_CLIENT_IDX] = torch.utils.data.Subset(dst_train, [])
         
-
-    # 创建遗忘数据集加载器
     forgotten_dataset = torch.utils.data.Subset(dst_train, fixed_forgotten_indices)
     forgotten_loader = torch.utils.data.DataLoader(
         forgotten_dataset, 
@@ -347,43 +324,35 @@ elif args.type == "client":
         shuffle=False
     )
 
-    # 创建客户端加载器
     client_loaders = [
     torch.utils.data.DataLoader(
         ds,
         batch_size=128,
-        shuffle=(len(ds) > 0),  # Shuffle only if dataset has samples
+        shuffle=(len(ds) > 0),
         generator=torch.Generator().manual_seed(SEED) if len(ds) > 0 else None
     ) for ds in client_datasets
 ]
 
 elif args.type == "class":
-    # 固定划分客户端数据
     client_datasets = torch.utils.data.random_split(
         dst_train,
         [len(dst_train)//CLIENT_NUM]*CLIENT_NUM,
         generator=torch.Generator().manual_seed(SEED)
     )
 
-    # 获取目标客户端数据索引
     target_dataset = client_datasets[FORGOTTEN_CLIENT_IDX]
     original_indices = target_dataset.indices.copy()
 
-    # 收集目标类别的样本索引
     forgotten_indices = []
     for idx in original_indices:
-        _, label = dst_train[idx]  # 假设数据格式为（数据，标签）
+        _, label = dst_train[idx]
         if label == FORGOTTEN_CLASS:
             forgotten_indices.append(idx)
     
-    # 确定性地排序索引
     fixed_forgotten_indices = sorted(forgotten_indices)
-
-    # 更新客户端数据集（移除目标类别）
     remaining_indices = list(set(original_indices) - set(fixed_forgotten_indices))
     client_datasets[FORGOTTEN_CLIENT_IDX] = torch.utils.data.Subset(dst_train, remaining_indices)
 
-    # 创建遗忘数据集加载器
     forgotten_dataset = torch.utils.data.Subset(dst_train, fixed_forgotten_indices)
     forgotten_loader = torch.utils.data.DataLoader(
         forgotten_dataset, 
@@ -391,7 +360,6 @@ elif args.type == "class":
         shuffle=False
     )
 
-    # 客户端加载器
     client_loaders = [
         torch.utils.data.DataLoader(
             ds, 
@@ -404,19 +372,17 @@ elif args.type == "class":
 aux_dataset= dst_validation
 
 
-print("aux_dataset 长度:",len(aux_dataset))
-print("forgotten_dataset 长度:",len(forgotten_dataset))
+# print("aux_dataset:",len(aux_dataset))
+# print("forgotten_dataset:",len(forgotten_dataset))
 batch_size = args.batch_size
 train_loader = torch.utils.data.DataLoader(dataset=aux_dataset, batch_size=(batch_size * leak_batch), shuffle=True)
 test_loader = torch.utils.data.DataLoader(dataset=forgotten_dataset, batch_size=(batch_size * leak_batch), shuffle=False)
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("开始实例化全局模型")
-# 实例化全样本模型
 full_net = model.to(device)
-criterion = nn.CrossEntropyLoss()  # 交叉熵损失
-optimizer_full = torch.optim.Adam(full_net.parameters(), lr=0.001)  # Adam优化器，学习率0.001
+criterion = nn.CrossEntropyLoss()
+optimizer_full = torch.optim.Adam(full_net.parameters(), lr=0.001)
 
 unlearned_net = model.to(device)
 optimizer_unlearned = torch.optim.Adam(unlearned_net.parameters(), lr=0.001)
@@ -464,11 +430,9 @@ def new_leakage_dataset(images, labels, full_net, unlearn_net):
     return features, targets
 
 
-
-# 计算 SVD 降维矩阵
 class SVDExtractor:
     def __init__(self, k=0.95):
-        self.k = k  # 支持按方差比例选择维度
+        self.k = k 
         self.V_k = None
         self.mean = None
 
@@ -478,10 +442,8 @@ class SVDExtractor:
         self.mean = grad_data.mean(dim=0, keepdim=True)
         grad_centered = grad_data - self.mean
         
-        # 随机SVD加速计算
         U, S, V = torch.svd_lowrank(grad_centered, q=min(1000, grad_data.size(0)//2))
         
-        # 动态选择k值
         explained_variance = S.pow(2).cumsum(0) / S.pow(2).sum()
         if isinstance(self.k, float):
             k = torch.where(explained_variance >= self.k)[0][0].item()+1
@@ -495,16 +457,15 @@ class SVDExtractor:
         """应用SVD投影"""
         return (grad_data - self.mean.to(grad_data.device)) @ self.V_k.to(grad_data.device)
 
-svd_extractor = SVDExtractor(k=0.95)  # 保留95%方差
+svd_extractor = SVDExtractor(k=0.95)
 
-# 计算SVD
 num_samples_for_svd = 10000
 svd_loader = torch.utils.data.DataLoader(aux_dataset, batch_size=num_samples_for_svd, shuffle=True)
 images, labels = next(iter(svd_loader))
 xs, _ = new_leakage_dataset(images, labels, full_net, unlearned_net) 
 
 svd_extractor.fit(xs.cpu())
-V_k = svd_extractor.V_k  # 获取投影矩阵
+V_k = svd_extractor.V_k 
 
 print("k:", V_k.shape)
 k = svd_extractor.V_k.size(1)
@@ -589,7 +550,7 @@ for parameters in grad_to_img_net.parameters():
     size += np.prod(parameters.size())
 logger.info(f"net size: {size}")
 
-# 训练设置
+# learning setting
 lr = args.lr
 epochs = args.epochs
 optimizer = torch.optim.Adam(grad_to_img_net.parameters(), lr=lr)
