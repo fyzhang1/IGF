@@ -327,7 +327,7 @@ FORGOTTEN_CLIENT_IDX = 3
 FORGET_SIZE = 1000       
 FORGOTTEN_CLASS = 1
     
-print("load fedrated learning和fedrated unlearning")
+print("load fedrated learning and fedrated unlearning")
 
 
 if args.type == "sample":
@@ -676,7 +676,7 @@ def defense_leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_
 
 
         random_vector = torch.randn_like(diff_grad)
-        random_vector = random_vector - (torch.dot(random_vector, diff_grad) / (torch.norm(diff_grad)**2 + 1e-8)) * diff_grad  # 正交化
+        random_vector = random_vector - (torch.dot(random_vector, diff_grad) / (torch.norm(diff_grad)**2 + 1e-8)) * diff_grad
         random_vector = random_vector / (torch.norm(random_vector) + 1e-8)  
         mix_factor = 0.5  
         diff_grad_obfuscated = (1 - mix_factor) * diff_grad + mix_factor * torch.norm(diff_grad) * random_vector
