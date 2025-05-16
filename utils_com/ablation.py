@@ -500,7 +500,6 @@ def out_of_distribution_data(num_samples=10000, seed=42):
             # Remap the label to be within 0-9
             non_cifar10_labels.append(class_mapping[label])
     
-    # 随机选择样本
     if len(non_cifar10_data) > num_samples:
         selected_indices = random.sample(range(len(non_cifar10_data)), num_samples)
         selected_data = [non_cifar10_data[i] for i in selected_indices]
