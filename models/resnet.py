@@ -17,8 +17,6 @@ ResNet56  |    56  | 0.85M
 ResNet110 |   110  |  1.7M
 ResNet1202|  1202  | 19.4m
 
-which this implementation indeed has.
-
 Reference:
 [1] Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun
     Deep Residual Learning for Image Recognition. arXiv:1512.03385
