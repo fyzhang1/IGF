@@ -48,9 +48,7 @@ FORGOTTEN_CLIENT_IDX = 3
 FORGET_SIZE = 1000      
 FORGOTTEN_CLASS = 1 
 
-"""
-模型定义
-"""
+
 if args.model == "lenet":
     net = LeNet(num_classes).to("cuda")
     compress_rate = 1.0
@@ -464,7 +462,5 @@ elif args.unlearning == "efficient":
     
 
 
-
-# 保存模型
 torch.save(full_net.state_dict(), f"/home/ecs-user/fgi/federated_weight/{args.model}/{args.dataset}_{args.type}_{args.unlearning}_{args.aggregation}_federated_full_round_20_partial.pth")
 torch.save(unlearned_net.state_dict(), f"/home/ecs-user/fgi/federated_weight/{args.model}/{args.dataset}_{args.type}_{args.unlearning}_{args.aggregation}_federated_unlearned_round_20_partial.pth")

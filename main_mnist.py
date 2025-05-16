@@ -391,7 +391,7 @@ elif args.type == "class":
 
 
 
-aux_loader = torch.utils.data.DataLoader(dst_test, batch_size=1, shuffle=False)  # 测试集
+aux_loader = torch.utils.data.DataLoader(dst_test, batch_size=1, shuffle=False)
 
 
 def leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_forgotten=False):

@@ -29,7 +29,6 @@ from defense import *
 from torch.utils.data import Subset, DataLoader
 
 
-# python ablation.py --lr 1e-4 --epochs 25 --leak_mode none --dataset CIFAR10 --batch_size 256 --shared_model LeNet --type sample --unlearning alition-retrain --state attack
 parser = argparse.ArgumentParser(description='Deep Leakage from Gradients.')
 parser.add_argument('--dataset', type=str, default="MNIST",
                     help='dataset to do the experiment')
@@ -60,7 +59,7 @@ logger.info(args)
 def get_class_samples(dataset, num_samples_per_class=10):
     class_samples = {}
     for i in range(len(dataset)):
-        _, label = dataset[i]  # 每个样本返回 (image, label)
+        _, label = dataset[i]  
         if label not in class_samples:
             class_samples[label] = []
         class_samples[label].append(i)
@@ -68,7 +67,7 @@ def get_class_samples(dataset, num_samples_per_class=10):
     selected_indices = []
     for label, indices in class_samples.items():
         if len(indices) >= num_samples_per_class:
-            # 随机选择指定数量的样本
+
             selected_indices += random.sample(indices, num_samples_per_class)
     
     return selected_indices
@@ -99,10 +98,10 @@ def get_class_samples(dataset, num_samples_per_class=10):
 #         xs = xs.view(batch_size, leak_batch, -1).mean(1) 
 #         ys = ys.view(batch_size, leak_batch, -1)
 
-#         # 输入梯度，输出恢复的图像
+
 #         preds = grad_to_img_net(xs).view(batch_size, leak_batch, -1) # pred: torch.Size([256, 1, 3072])
         
-#         # 使用均方误差（MSE）衡量恢复图像与原始图像的差异，并通过匈牙利算法匹配批次内的样本顺序
+
 #         batch_wise_mse = (torch.cdist(ys, preds) ** 2) / image_size
 #         loss = 0
 #         for mse_mat in batch_wise_mse:
@@ -285,9 +284,7 @@ for i, parameters in enumerate(net.parameters()):
 logger.info(f"model size: {model_size}")
 
 
-"""
-训练和测试集定义
-"""
+
 if args.trainset == "full":
     if args.type == "sample":
         checkpoint_name = f"data/{args.type}_{args.dataset}_{args.shared_model}_grad_to_img.pl"
@@ -330,7 +327,7 @@ FORGOTTEN_CLIENT_IDX = 3
 FORGET_SIZE = 1000       
 FORGOTTEN_CLASS = 1
     
-print("加载fedrated learning和fedrated unlearning数据集")
+print("load fedrated learning和fedrated unlearning")
 
 
 if args.type == "sample":
@@ -464,7 +461,7 @@ def out_of_distribution_data(num_samples=10000, seed=42):
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    # 加载cifar100
+    # loda ifar100
     transform = transforms.Compose([
         transforms.ToTensor(),
     ])
@@ -472,7 +469,6 @@ def out_of_distribution_data(num_samples=10000, seed=42):
     cifar100_train = datasets.CIFAR100("~/.torch", download=True, train=True, transform=transform)
     cifar100_test = datasets.CIFAR100("~/.torch", download=True, train=False, transform=transform)
     
-    # 合并测试和训练集以增加数量
     combined_dataset = torch.utils.data.ConcatDataset([cifar100_train, cifar100_test])
     
     # Define CIFAR-10 equivalent classes in CIFAR-100 to exclude
@@ -536,7 +532,7 @@ def out_of_distribution_data(num_samples=10000, seed=42):
 
 aux_loader = out_of_distribution_data(num_samples=10000)
 
-# aux_loader = torch.utils.data.DataLoader(dst_test, batch_size=1, shuffle=False)  # 测试集
+# aux_loader = torch.utils.data.DataLoader(dst_test, batch_size=1, shuffle=False) 
 
 print("print dataset")
 
@@ -617,11 +613,10 @@ def leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_forgotte
 #     unlearned_net.eval()
 #     scale = 2.0
 
-#     # 动态计算模型参数量
-#     model_size = sum(p.numel() for p in full_net.parameters())  # 关键修改
-#     image_size = np.prod(data_loader.dataset[0][0].shape)      # 输入图像的维度（如 1 * 28 * 28）
+
+#     model_size = sum(p.numel() for p in full_net.parameters())  
+#     image_size = np.prod(data_loader.dataset[0][0].shape)     
     
-#     # 初始化特征和目标张量
 #     features = torch.zeros([len(data_loader.dataset), model_size], device=device)
 #     targets = torch.zeros([len(data_loader.dataset), image_size], device=device)
 
@@ -629,23 +624,19 @@ def leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_forgotte
 #         onehot_labels = label_to_onehot(labels, num_classes)
 #         images, onehot_labels = images.to(device), onehot_labels.to(device)
         
-#         # 计算完整模型的梯度
 #         pred_full = full_net(images)
 #         loss_full = criterion(pred_full, onehot_labels)
 #         dy_dx_full = torch.autograd.grad(loss_full, full_net.parameters(), create_graph=False)
 #         grad_full = torch.cat([g.detach().view(-1) for g in dy_dx_full])
 
-#         # 计算未学习模型的梯度
 #         pred_unlearned = unlearned_net(images)
 #         loss_unlearned = criterion(pred_unlearned, onehot_labels)
 #         dy_dx_unlearned = torch.autograd.grad(loss_unlearned, unlearned_net.parameters(), create_graph=False)
 #         grad_unlearned = torch.cat([g.detach().view(-1) for g in dy_dx_unlearned])
 
-#         # 放大未学习模型的梯度并计算差异
 #         diff_grad = grad_full - scale * grad_unlearned
 #         # diff_grad = grad_full - grad_unlearned
 
-#         # 存储差异梯度（特征）和原始图像（目标）
 #         features[i] = diff_grad
 #         targets[i] = images.view(-1)
 
@@ -657,11 +648,10 @@ def defense_leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_
     full_net.eval()
     unlearned_net.eval()
 
-    # 动态计算模型参数量
-    model_size = sum(p.numel() for p in full_net.parameters())  # 关键修改
-    image_size = np.prod(data_loader.dataset[0][0].shape)      # 输入图像的维度（如 1 * 28 * 28）
+    model_size = sum(p.numel() for p in full_net.parameters()) 
+    image_size = np.prod(data_loader.dataset[0][0].shape)      
     
-    # 初始化特征和目标张量
+
     features = torch.zeros([len(data_loader.dataset), model_size], device=device)
     targets = torch.zeros([len(data_loader.dataset), image_size], device=device)
 
@@ -669,13 +659,13 @@ def defense_leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_
         onehot_labels = label_to_onehot(labels, num_classes)
         images, onehot_labels = images.to(device), onehot_labels.to(device)
         
-        # 计算完整模型的梯度
+
         pred_full = full_net(images)
         loss_full = criterion(pred_full, onehot_labels)
         dy_dx_full = torch.autograd.grad(loss_full, full_net.parameters(), create_graph=False)
         grad_full = torch.cat([g.detach().view(-1) for g in dy_dx_full])
 
-        # 计算未学习模型的梯度
+
         pred_unlearned = unlearned_net(images)
         loss_unlearned = criterion(pred_unlearned, onehot_labels)
         dy_dx_unlearned = torch.autograd.grad(loss_unlearned, unlearned_net.parameters(), create_graph=False)
@@ -685,16 +675,16 @@ def defense_leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_
        
         diff_grad = grad_full - grad_unlearned
 
-        # # 正交混淆
+
         random_vector = torch.randn_like(diff_grad)
         random_vector = random_vector - (torch.dot(random_vector, diff_grad) / (torch.norm(diff_grad)**2 + 1e-8)) * diff_grad  # 正交化
-        random_vector = random_vector / (torch.norm(random_vector) + 1e-8)  # 单位化
-        mix_factor = 0.5  # 混淆强度
+        random_vector = random_vector / (torch.norm(random_vector) + 1e-8)  
+        mix_factor = 0.5  
         diff_grad_obfuscated = (1 - mix_factor) * diff_grad + mix_factor * torch.norm(diff_grad) * random_vector
 
         features[i] = diff_grad_obfuscated
 
-        # 存储差异梯度（特征）和原始图像（目标）
+
         # features[i] = diff_grad
         targets[i] = images.view(-1)
 
@@ -702,8 +692,8 @@ def defense_leakage_dataset(data_loader, full_net, unlearned_net, criterion, is_
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("开始实例化全局模型")
-# 实例化全样本模型
+print("global model")
+
 
 if args.dataset == "CIFAR10":
     full_net = LeNet(num_classes).to(device)

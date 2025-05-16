@@ -1,20 +1,19 @@
-# LGIF: Large-Scale Gradient Inversion Attack in Verifiable Federated Unlearning
+# Verifiably Forgotten? Gradient Differences Still Enable Data Reconstruction in Federated Unlearning
 
-The repositorie is the code of "LGIF: Large-Scale Gradient Inversion Attack in
-Verifiable Federated Unlearning".
+The repositorie is the code of "Verifiably Forgotten? Gradient Differences Still Enable Data Reconstruction in Federated Unlearning".
 
 ---
 ##  Create and activate environment
 ```python
-conda create -n lgif python=3.10
-conda activate lgif
+conda create -n igf python=3.10
+conda activate igf
 ```
 
 ##  Install the required repository
 
 ```python
 pip install -r requirements.txt
-cd LGIF
+cd IGF
 ```
 ---
 

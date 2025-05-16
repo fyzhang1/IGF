@@ -613,18 +613,13 @@ print(f"net size: {size}")
 
 
 
-"""
-训练中参数的一些定义
-"""
 lr = args.lr
 epochs = args.epochs
 optimizer = torch.optim.Adam(grad_to_img_net.parameters(), lr=lr)
 # optimizer = torch.optim.Adam(grad_to_img_net.parameters(), lr=lr, weight_decay=1e-5)
 
     
-"""
-加载训练和测试集
-"""
+
 
 batch_size = args.batch_size
 

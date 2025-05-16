@@ -88,10 +88,10 @@ def train(grad_to_img_net, net, data_loader, sign=False, mask=None, prune_rate=N
             xs.mul_(mask)
         
         
-        print("xs 压缩前的尺寸:", xs.shape)
+        print("xs size:", xs.shape)
 
         xs = svd_extractor.transform(xs)
-        print("xs 压缩后的尺寸:", xs.shape)
+        print("xs size:", xs.shape)
 
         xs = xs.view(batch_size, leak_batch, -1).mean(1).cuda()
         ys = ys.view(batch_size, leak_batch, -1).cuda()
@@ -201,7 +201,7 @@ def test(grad_to_img_net, net, data_loader, sign=False, mask=None, prune_rate=No
     total_loss = total_loss / total_num
     return (total_loss, None), (reconstructed_data, gt_data)
 
-# 输入模型
+
 if args.dataset in ["FashionMNIST", "MNIST"]:
     image_size = 784
     num_classes = 10
@@ -437,8 +437,7 @@ class SVDExtractor:
         self.mean = None
 
     def fit(self, grad_data):
-        """在梯度数据上训练SVD"""
-        # 中心化
+  
         self.mean = grad_data.mean(dim=0, keepdim=True)
         grad_centered = grad_data - self.mean
         
@@ -454,7 +453,6 @@ class SVDExtractor:
         self.V_k = V[:, :k]  # (model_size, k)
         
     def transform(self, grad_data):
-        """应用SVD投影"""
         return (grad_data - self.mean.to(grad_data.device)) @ self.V_k.to(grad_data.device)
 
 svd_extractor = SVDExtractor(k=0.95)

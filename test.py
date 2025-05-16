@@ -25,9 +25,7 @@ from utils_com.logger import set_logger
 import random
 import lpips
 import matplotlib.pyplot as plt
-"""
-参数定义
-"""
+
 
 parser = argparse.ArgumentParser(description='Deep Leakage from Gradients.')
 parser.add_argument('--dataset', type=str, default="MNIST",
@@ -52,11 +50,11 @@ logger.info(args)
 
 
 
-# 按类别分组
+
 def get_class_samples(dataset, num_samples_per_class=10):
     class_samples = {}
     for i in range(len(dataset)):
-        _, label = dataset[i]  # 每个样本返回 (image, label)
+        _, label = dataset[i] 
         if label not in class_samples:
             class_samples[label] = []
         class_samples[label].append(i)
@@ -64,17 +62,14 @@ def get_class_samples(dataset, num_samples_per_class=10):
     selected_indices = []
     for label, indices in class_samples.items():
         if len(indices) >= num_samples_per_class:
-            # 随机选择指定数量的样本
+
             selected_indices += random.sample(indices, num_samples_per_class)
     
     return selected_indices
 
 
 
-"""
-反演模型训练时的输入是全局模型在辅助数据集上的梯度然后与辅助数据集样本优化; 产生一种梯度与数据的映射关系
-之后test的过程中再将全局模型的梯度作为输入去反演出数据
-"""
+
 
 def train(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, leak_batch=1):
     grad_to_img_net.train()
@@ -152,7 +147,7 @@ def train(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, 
     return total_loss
 
 
-#感知损失+MSE损失+SSIM损失
+
 # def train(grad_to_img_net, data_loader, sign=False, mask=None, prune_rate=None, leak_batch=1):
 #     grad_to_img_net.train()
 #     total_loss = 0
@@ -277,9 +272,6 @@ image_size = 3 * 32 * 32
 num_classes = 10
 
 
-"""
-全局模型定义LeNet (net)
-"""
 
 if args.shared_model == "LeNet":
     net = LeNet(num_classes).to("cuda")
@@ -295,9 +287,7 @@ logger.info(f"model size: {model_size}")
 # net.load_state_dict(torch.load("cifar_lenet.pth"))
 
 
-"""
-训练和测试集定义
-"""
+
 if args.trainset == "full":
     checkpoint_name = f"data/{args.dataset}_{args.shared_model}_grad_to_img.pl"
 else:
@@ -328,32 +318,31 @@ if not os.path.exists(checkpoint_name):
         SEED = 42
         torch.manual_seed(SEED)
         np.random.seed(SEED)
-        # 定义客户端数量和遗忘参数
-        CLIENT_NUM = 4
-        FORGOTTEN_CLIENT_IDX = 3  # 要遗忘的客户端索引
-        FORGET_SIZE = 1000       # 固定遗忘样本数
-    
-    print("加载fedrated learning和fedrated unlearning数据集")
 
-    # 固定划分客户端数据（使用确定性的随机划分）
+        CLIENT_NUM = 4
+        FORGOTTEN_CLIENT_IDX = 3 
+        FORGET_SIZE = 1000       
+    
+    print("load fedrated learning和fedrated unlearning dataset")
+
     client_datasets = torch.utils.data.random_split(
         dst_train,
         [len(dst_train)//CLIENT_NUM]*CLIENT_NUM,
-        generator=torch.Generator().manual_seed(SEED)  # 固定划分随机种子
+        generator=torch.Generator().manual_seed(SEED)  
     )
     
-    # 获取目标客户端原始数据索引
+
     target_dataset = client_datasets[FORGOTTEN_CLIENT_IDX]
-    original_indices = target_dataset.indices.copy()  # 原始索引列表
+    original_indices = target_dataset.indices.copy()  
 
-    # 确定性地选择前N个样本作为遗忘集（方法1：绝对位置）
-    fixed_forgotten_indices = sorted(original_indices)[:FORGET_SIZE]  # 按原始顺序取前1000
 
-    # 更新客户端数据集划分
+    fixed_forgotten_indices = sorted(original_indices)[:FORGET_SIZE]  
+
+
     remaining_indices = list(set(original_indices) - set(fixed_forgotten_indices))
     client_datasets[FORGOTTEN_CLIENT_IDX] = torch.utils.data.Subset(dst_train, remaining_indices)
 
-    # 创建遗忘数据集加载器
+
     forgotten_dataset = torch.utils.data.Subset(dst_train, fixed_forgotten_indices)
     forgotten_loader = torch.utils.data.DataLoader(
         forgotten_dataset, 
@@ -361,12 +350,12 @@ if not os.path.exists(checkpoint_name):
         shuffle=False
     )
 
-    # 创建客户端加载器（包含更新后的数据集）
+
     client_loaders = [
         torch.utils.data.DataLoader(
             ds, 
             batch_size=32, 
-            shuffle=True,  # 训练时保持shuffle但随机种子固定
+            shuffle=True,
             generator=torch.Generator().manual_seed(SEED))
         for ds in client_datasets ]
 
@@ -380,14 +369,14 @@ if not os.path.exists(checkpoint_name):
 
     # selected_indices = get_class_samples(dst_test, num_samples_per_class=300)
 
-    # # 创建新的数据集
+
     # custom_subset = torch.utils.data.Subset(dst_test, selected_indices)
 
-    # # 创建新的 DataLoader
+
     # aux_loader = torch.utils.data.DataLoader(custom_subset, batch_size=1, shuffle=False)
     
-    # 训练反演模型用 aux_loader
-    # 测试用 test_forgotten_loader
+    #  aux_loader
+    # test_forgotten_loader
 
     # print("print dataset")
     # print(len(fed_loader_full.dataset))         # 10000
@@ -431,11 +420,10 @@ if not os.path.exists(checkpoint_name):
 
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("开始实例化全局模型")
-    # 实例化全样本模型
+
     full_net = LeNet(num_classes=10).to(device)
-    criterion = nn.CrossEntropyLoss()  # 交叉熵损失
-    optimizer_full = torch.optim.Adam(full_net.parameters(), lr=0.001)  # Adam优化器，学习率0.001
+    criterion = nn.CrossEntropyLoss() 
+    optimizer_full = torch.optim.Adam(full_net.parameters(), lr=0.001) 
 
     unlearned_net = LeNet(num_classes=10).to(device)
     optimizer_unlearned = torch.optim.Adam(unlearned_net.parameters(), lr=0.001)
@@ -451,7 +439,7 @@ if not os.path.exists(checkpoint_name):
 
 
     checkpoint = {}
-    # 生成训练数据（被遗忘样本的差异梯度）
+
     print("Generating training leakage dataset...")
     # features, targets = leakage_dataset(forgotten_loader)
 
@@ -459,8 +447,6 @@ if not os.path.exists(checkpoint_name):
     checkpoint["train_features"] = features
     checkpoint["train_targets"] = targets
 
-
-    # 生成测试数据（测试集的差异梯度）
     print("Generating testing leakage dataset...")
 
     features, targets = leakage_dataset(test_forgotten_loader, full_net, unlearned_net, criterion, is_forgotten=False)
@@ -479,11 +465,6 @@ testset = torch.utils.data.TensorDataset(checkpoint["test_features"], checkpoint
 
 
 
-
-
-"""
-模式定义; 这里我们不需要, 我们设置为none
-"""
 prune_rate = None
 leak_batch = 1
 sign = False
@@ -501,9 +482,7 @@ for i in range(len(leak_mode_list)):
 print(prune_rate, leak_batch, sign, gauss_noise)
 
 
-"""
-反演模型定义
-"""
+
 torch.manual_seed(0)
 selected_para = torch.randperm(model_size)[:int(model_size * compress_rate)]
 # if args.model.startswith("MLP"):
@@ -559,18 +538,12 @@ print(f"net size: {size}")
 
 
 
-"""
-训练中参数的一些定义
-"""
+
 lr = args.lr
 epochs = args.epochs
 optimizer = torch.optim.Adam(grad_to_img_net.parameters(), lr=lr)
 # optimizer = torch.optim.Adam(grad_to_img_net.parameters(), lr=lr, weight_decay=1e-5)
 
-    
-"""
-加载训练和测试集
-"""
 
 batch_size = args.batch_size
 # train_loader = torch.utils.data.DataLoader(dataset=trainset,
@@ -606,9 +579,6 @@ if os.path.exists(checkpoint_name):
 best_test_loss = 10000
 best_state_dict = None
 
-"""
-训练反演模型主函数
-"""
 
 for epoch in tqdm(range(args.epochs)):
     train_loss = train(grad_to_img_net, train_loader_inversion, sign, prune_rate=prune_rate, leak_batch=leak_batch)
