@@ -178,7 +178,7 @@ def federated_unlearning(global_model, forgotten_loader, remaining_client_loader
                     optimizer.zero_grad()
                     outputs = local_model(images)
                     loss = criterion(outputs, labels)
-                    loss += 0.01 * sum(p.pow(2.0).sum() for p in local_model.parameters())  # L2 正则化
+                    loss += 0.01 * sum(p.pow(2.0).sum() for p in local_model.parameters())  # L2
                     loss.backward()
                     
                     for param in local_model.parameters():
@@ -462,5 +462,5 @@ elif args.unlearning == "efficient":
     
 
 
-torch.save(full_net.state_dict(), f"/home/ecs-user/fgi/federated_weight/{args.model}/{args.dataset}_{args.type}_{args.unlearning}_{args.aggregation}_federated_full_round_20_partial.pth")
-torch.save(unlearned_net.state_dict(), f"/home/ecs-user/fgi/federated_weight/{args.model}/{args.dataset}_{args.type}_{args.unlearning}_{args.aggregation}_federated_unlearned_round_20_partial.pth")
+torch.save(full_net.state_dict(), f"./fgi/federated_weight/{args.model}/{args.dataset}_{args.type}_{args.unlearning}_{args.aggregation}_federated_full_round_20_partial.pth")
+torch.save(unlearned_net.state_dict(), f"./fgi/federated_weight/{args.model}/{args.dataset}_{args.type}_{args.unlearning}_{args.aggregation}_federated_unlearned_round_20_partial.pth")

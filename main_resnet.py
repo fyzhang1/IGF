@@ -387,12 +387,12 @@ optimizer_full = torch.optim.Adam(full_net.parameters(), lr=0.001)
 unlearned_net = model.to(device)
 optimizer_unlearned = torch.optim.Adam(unlearned_net.parameters(), lr=0.001)
 
-full_model_path = "/home/ecs-user/fgi/federated_weight/resnet20/CIFAR10/CIFAR10_class_efficient_fedavg_federated_full_round_20_partial.pth"
+full_model_path = "./fgi/federated_weight/resnet20/CIFAR10/CIFAR10_class_efficient_fedavg_federated_full_round_20_partial.pth"
 print(f"Found existing full model at '{full_model_path}', loading weights...")
 full_net.load_state_dict(torch.load(full_model_path))
 
 
-unlearned_model_path = "/home/ecs-user/fgi/federated_weight/resnet20/CIFAR10/CIFAR10_class_efficient_fedavg_federated_unlearned_round_20_partial.pth"
+unlearned_model_path = "./fgi/federated_weight/resnet20/CIFAR10/CIFAR10_class_efficient_fedavg_federated_unlearned_round_20_partial.pth"
 print(f"Found existing unlearned model at '{unlearned_model_path}', loading weights...")
 unlearned_net.load_state_dict(torch.load(unlearned_model_path))
 

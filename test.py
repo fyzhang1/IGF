@@ -323,7 +323,7 @@ if not os.path.exists(checkpoint_name):
         FORGOTTEN_CLIENT_IDX = 3 
         FORGET_SIZE = 1000       
     
-    print("load fedrated learning和fedrated unlearning dataset")
+    print("load fedrated learning and fedrated unlearning dataset")
 
     client_datasets = torch.utils.data.random_split(
         dst_train,
@@ -365,7 +365,7 @@ if not os.path.exists(checkpoint_name):
         shuffle=False
     )
 
-    aux_loader = torch.utils.data.DataLoader(dst_test, batch_size=1, shuffle=False)  # 测试集
+    aux_loader = torch.utils.data.DataLoader(dst_test, batch_size=1, shuffle=False)
 
     # selected_indices = get_class_samples(dst_test, num_samples_per_class=300)
 
@@ -428,12 +428,12 @@ if not os.path.exists(checkpoint_name):
     unlearned_net = LeNet(num_classes=10).to(device)
     optimizer_unlearned = torch.optim.Adam(unlearned_net.parameters(), lr=0.001)
 
-    full_model_path = "/home/ecs-user/fgi/federated_weight/federated_full_sample_1000_round_20_partial.pth"
+    full_model_path = "./fgi/federated_weight/federated_full_sample_1000_round_20_partial.pth"
     print(f"Found existing full model at '{full_model_path}', loading weights...")
     full_net.load_state_dict(torch.load(full_model_path))
 
 
-    unlearned_model_path = "/home/ecs-user/fgi/federated_weight/efficient/efficient_federated_unlearned_gradient_sample_1000_round_20.pth"
+    unlearned_model_path = "./fgi/federated_weight/efficient/efficient_federated_unlearned_gradient_sample_1000_round_20.pth"
     print(f"Found existing unlearned model at '{unlearned_model_path}', loading weights...")
     unlearned_net.load_state_dict(torch.load(unlearned_model_path))
 
