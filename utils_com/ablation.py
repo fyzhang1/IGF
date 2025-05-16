@@ -710,12 +710,12 @@ optimizer_full = torch.optim.Adam(full_net.parameters(), lr=0.001)
 
 optimizer_unlearned = torch.optim.Adam(unlearned_net.parameters(), lr=0.001)
 
-full_model_path = "/home/ecs-user/fgi/federated_weight/Lenet/retrain/cifar10/federated_full_sample_1000_round_20_partial.pth"
+full_model_path = "./fgi/federated_weight/Lenet/retrain/cifar10/federated_full_sample_1000_round_20_partial.pth"
 print(f"Found existing full model at '{full_model_path}', loading weights...")
 full_net.load_state_dict(torch.load(full_model_path))
 
 
-unlearned_model_path = "/home/ecs-user/fgi/federated_weight/Lenet/retrain/cifar10/federated_unlearned_sample_1000_round_20_partial.pth"
+unlearned_model_path = "./fgi/federated_weight/Lenet/retrain/cifar10/federated_unlearned_sample_1000_round_20_partial.pth"
 print(f"Found existing unlearned model at '{unlearned_model_path}', loading weights...")
 unlearned_net.load_state_dict(torch.load(unlearned_model_path))
 
