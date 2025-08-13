@@ -2,7 +2,10 @@
 
 The repositorie is the code of "Verifiably Forgotten? Gradient Differences Still Enable Data Reconstruction in Federated Unlearning".
 
-![igf](./Figs/igf.jpg)
+<p align="center">
+  <img src="./Figs/igf.jpg" width="100%">
+</p>
+
 ---
 ##  Create and activate environment
 ```python
