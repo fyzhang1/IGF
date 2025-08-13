@@ -49,3 +49,19 @@ option:
 ```python
 python main.py --lr 1e-4 --epochs 30 --leak_mode none --dataset CIFAR10 --batch_size 256 --shared_model LeNet --type sample --unlearning retrain --state attack
 ```
+
+## Citation
+
+If you find this work useful, please consider citing our paper:
+
+```bibtex
+@misc{zhang2025verifiablyforgottengradientdifferences,
+      title={Verifiably Forgotten? Gradient Differences Still Enable Data Reconstruction in Federated Unlearning}, 
+      author={Fuyao Zhang and Wenjie Li and Yurong Hao and Xinyu Yan and Yang Cao and Wei Yang Bryan Lim},
+      year={2025},
+      eprint={2505.11097},
+      archivePrefix={arXiv},
+      primaryClass={cs.CR},
+      url={https://arxiv.org/abs/2505.11097}, 
+}
+```
