@@ -1,7 +1,7 @@
 # Verifiably Forgotten? Gradient Differences Still Enable Data Reconstruction in Federated Unlearning
 
 The repositorie is the code of "Verifiably Forgotten? Gradient Differences Still Enable Data Reconstruction in Federated Unlearning".
-
+![igf](./Figs/igf.jpg)
 ---
 ##  Create and activate environment
 ```python
