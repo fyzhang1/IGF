@@ -3,7 +3,7 @@
 The repositorie is the code of "Verifiably Forgotten? Gradient Differences Still Enable Data Reconstruction in Federated Unlearning".
 
 <p align="center">
-  <img src="./Figs/igf.jpg" width="100%">
+  <img src="./Figs/igf.jpg" width="70%">
 </p>
 
 ---
